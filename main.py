@@ -8,7 +8,7 @@ st.title("🎓 College Placement Portal")
 st.write("Welcome! Register your details or view upcoming company drives.")
 
 # We updated the menu to include the new features
-menu = ["Student Registration", "Company Registration", "Job Board", "Admin Dashboard"]
+menu = ["Student Registration", "Company Registration", "Job Board", "Resume Builder", "Admin Dashboard"]
 choice = st.sidebar.selectbox("Navigation", menu)
 
 # ==========================================
@@ -71,6 +71,108 @@ elif choice == "Job Board":
         st.dataframe(df_companies, use_container_width=True)
     else:
         st.info("No companies have posted job drives yet. Check back later!")
+
+# ==========================================
+# 4. RESUME BUILDER PAGE
+# ==========================================
+elif choice == "Resume Builder":
+    st.subheader("📝 Resume Builder & Validator")
+    st.write("Fill in your details and download a formatted resume.")
+
+    with st.form("resume_form"):
+        r_name = st.text_input("Full Name")
+        r_email = st.text_input("Email")
+        r_phone = st.text_input("Phone Number")
+        r_summary = st.text_area("Professional Summary", height=100)
+        r_education = st.text_area("Education (one entry per line, e.g. B.Tech CSE, 2023)", height=100)
+        r_skills = st.text_area("Skills (comma separated)", height=100)
+        r_projects = st.text_area("Projects (one per line)", height=100)
+        build = st.form_submit_button("Build Resume")
+
+    if build:
+        errors = []
+        if not r_name.strip():
+            errors.append("Name cannot be empty.")
+        if "@" not in r_email or not r_email.strip():
+            errors.append("Please provide a valid email address.")
+        if not r_phone.isdigit() or len(r_phone) < 10:
+            errors.append("Phone number should be at least 10 digits and contain only numbers.")
+        if not r_skills.strip():
+            errors.append("Add at least one skill.")
+
+        if errors:
+            for err in errors:
+                st.error(err)
+        else:
+            # preview resume as markdown
+            md = f"## {r_name}\n"
+            md += f"**Email:** {r_email}  \\n"
+            md += f"**Phone:** {r_phone}  \n\n"
+            if r_summary.strip():
+                md += f"**Summary**\n{r_summary}\n\n"
+            if r_education.strip():
+                md += "**Education**\n"
+                for line in r_education.strip().splitlines():
+                    md += f"- {line}\n"
+                md += "\n"
+            if r_skills.strip():
+                md += "**Skills**\n"
+                for skill in r_skills.split(","):
+                    md += f"- {skill.strip()}\n"
+                md += "\n"
+            if r_projects.strip():
+                md += "**Projects**\n"
+                for line in r_projects.strip().splitlines():
+                    md += f"- {line}\n"
+                md += "\n"
+            st.markdown(md)
+
+            # generate PDF
+            try:
+                from fpdf import FPDF
+                import io
+
+                pdf = FPDF()
+                pdf.add_page()
+                pdf.set_font("Arial", 'B', 16)
+                pdf.cell(0, 10, r_name, ln=True, align='C')
+                pdf.set_font("Arial", size=12)
+                pdf.ln(4)
+                pdf.cell(0, 8, f"Email: {r_email}", ln=True)
+                pdf.cell(0, 8, f"Phone: {r_phone}", ln=True)
+                pdf.ln(4)
+                if r_summary.strip():
+                    pdf.set_font("Arial", 'B', 14)
+                    pdf.cell(0, 8, "Summary", ln=True)
+                    pdf.set_font("Arial", size=12)
+                    pdf.multi_cell(0, 6, r_summary)
+                    pdf.ln(2)
+                if r_education.strip():
+                    pdf.set_font("Arial", 'B', 14)
+                    pdf.cell(0, 8, "Education", ln=True)
+                    pdf.set_font("Arial", size=12)
+                    for line in r_education.strip().splitlines():
+                        pdf.cell(0, 6, f"- {line}", ln=True)
+                    pdf.ln(2)
+                if r_skills.strip():
+                    pdf.set_font("Arial", 'B', 14)
+                    pdf.cell(0, 8, "Skills", ln=True)
+                    pdf.set_font("Arial", size=12)
+                    for skill in r_skills.split(","):
+                        pdf.cell(0, 6, f"- {skill.strip()}", ln=True)
+                    pdf.ln(2)
+                if r_projects.strip():
+                    pdf.set_font("Arial", 'B', 14)
+                    pdf.cell(0, 8, "Projects", ln=True)
+                    pdf.set_font("Arial", size=12)
+                    for line in r_projects.strip().splitlines():
+                        pdf.cell(0, 6, f"- {line}", ln=True)
+                    pdf.ln(2)
+
+                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                st.download_button("Download Resume (PDF)", data=pdf_bytes, file_name="resume.pdf", mime="application/pdf")
+            except ImportError:
+                st.warning("PDF generation requires the 'fpdf' package. Add it to requirements and rebuild the environment.")
 
 # ==========================================
 # 4. ADMIN DASHBOARD PAGE
