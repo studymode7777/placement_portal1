@@ -98,6 +98,30 @@ elif choice == "Admin Dashboard":
             st.download_button("Download Company List (CSV)", data=csv_comps, file_name="companies.csv")
         else:
             st.warning("No companies registered yet.")
+
+        st.markdown("---")
+        st.write("### ⚠️ Danger Zone")
+        
+        # Two columns for the delete buttons to keep the layout clean
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("Wipe Student Data"):
+                if os.path.exists("database.csv"):
+                    os.remove("database.csv")
+                    st.success("Student database cleared.")
+                    st.rerun() # Refresh the page to show empty state
+                else:
+                    st.info("Student database is already empty.")
+
+        with col2:
+            if st.button("Wipe Company Data"):
+                if os.path.exists("companies.csv"):
+                    os.remove("companies.csv")
+                    st.success("Company database cleared.")
+                    st.rerun() # Refresh the page to show empty state
+                else:
+                    st.info("Company database is already empty.")
             
     elif password: 
         st.error("Incorrect Password.")
