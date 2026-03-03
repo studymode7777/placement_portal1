@@ -261,92 +261,79 @@ elif choice == "Company Login":
     st.subheader("🏢 Company Login")
     st.write("Login with email and password to view and connect with eligible students.")
     st.write("(After login you will see your posted salary package and eligibility criteria)")
-    
+
     company_email = st.text_input("Enter your Company Email")
     pwd = st.text_input("Password", type="password")
     if st.button("Company Login"):
         if not company_email.strip() or not pwd:
             st.error("Please enter both email and password.")
         else:
-            # Check if company exists
             if os.path.exists("companies.csv"):
                 df_companies = pd_read("companies.csv")
-                df_companies = ensure_columns(df_companies, ["Email","Password","Company","Address","Package","Criteria"])
-                # find matching row
-                match = df_companies[ df_companies["Email"].astype(str).str.strip().str.lower() == company_email.strip().lower() ]
+                df_companies = ensure_columns(df_companies, ["Email", "Password", "Company", "Address", "Package", "Criteria"])
+                match = df_companies[df_companies["Email"].astype(str).str.strip().str.lower() == company_email.strip().lower()]
                 if match.empty:
                     st.error("❌ Company email not found. Check registration.")
                 else:
                     stored_pwd = str(match.iloc[0]["Password"]).strip()
-                    # convert nan to empty
                     if stored_pwd.lower() == 'nan':
                         stored_pwd = ''
-                    # strip trailing .0 if accidentally treated as float
                     if stored_pwd.endswith('.0') and stored_pwd[:-2].isdigit():
                         stored_pwd = stored_pwd[:-2]
+
                     if stored_pwd != pwd.strip():
                         st.error("❌ Incorrect password. Use the password set during registration or reset your account.")
                     else:
                         company = match.iloc[0]
-                        company_name = company['Company']
-                        criteria = company['Criteria']
-                        package = company['Package']
-                        
+                        company_name = company["Company"]
+                        criteria = company["Criteria"]
+                        package = company["Package"]
+
                         st.success(f"✅ Welcome, {company_name}!")
-                        
-                        # Show company details (including package & criteria)
                         st.markdown("### Your Posting Details")
                         st.write(f"**Package:** {package}")
                         st.write(f"**Eligibility Criteria:** {criteria}")
                         st.write(f"**Address:** {company['Address']}")
                         st.markdown("---")
-                    
-                    # Show eligible students
-                    if os.path.exists("database.csv"):
-                        df_students = pd_read("database.csv")
-                        
-                        st.write("### 👥 All Registered Students")
-                        
-                        # Display all students with their resumes
-                        # initialize message lists if not present
-                        if "contact_msgs" not in st.session_state:
-                            st.session_state.contact_msgs = []
-                        if "shortlist_msgs" not in st.session_state:
-                            st.session_state.shortlist_msgs = []
 
-                        if not df_students.empty:
-                            for idx, student in df_students.iterrows():
-                                with st.expander(f"📄 {student['Name']} - {student['Branch']} (CGPA: {student['CGPA']})"):
-                                    col1, col2 = st.columns(2)
-                                    with col1:
-                                        st.write(f"**Email:** {student['Email']}")
-                                        st.write(f"**CGPA:** {student['CGPA']}")
-                                    with col2:
-                                        st.write(f"**Branch:** {student['Branch']}")
-                                    
-                                    st.markdown("---")
-                                    
-                                    # Action buttons
-                                    col_a, col_b = st.columns(2)
-                                    contact_key = f"contact_{idx}"
-                                    shortlist_key = f"shortlist_{idx}"
-                                    with col_a:
-                                        if st.button(f"✉️ Contact {student['Name']}", key=contact_key):
-                                            st.session_state.contact_msgs.append(f"Contact email: {student['Email']} (to {student['Name']})")
-                                    
-                                    with col_b:
-                                        if st.button(f"⭐ Shortlist {student['Name']}", key=shortlist_key):
-                                            st.session_state.shortlist_msgs.append(f"{student['Name']} has been shortlisted!")
+                        if os.path.exists("database.csv"):
+                            df_students = pd_read("database.csv")
+                            st.write("### 👥 All Registered Students")
 
-                        # display accumulated messages
-                        for msg in st.session_state.get("contact_msgs", []):
-                            st.info(msg)
-                        for msg in st.session_state.get("shortlist_msgs", []):
-                            st.success(msg)
+                            if "contact_msgs" not in st.session_state:
+                                st.session_state.contact_msgs = []
+                            if "shortlist_msgs" not in st.session_state:
+                                st.session_state.shortlist_msgs = []
+
+                            if not df_students.empty:
+                                for idx, student in df_students.iterrows():
+                                    with st.expander(f"📄 {student['Name']} - {student['Branch']} (CGPA: {student['CGPA']})"):
+                                        col1, col2 = st.columns(2)
+                                        with col1:
+                                            st.write(f"**Email:** {student['Email']}")
+                                            st.write(f"**CGPA:** {student['CGPA']}")
+                                        with col2:
+                                            st.write(f"**Branch:** {student['Branch']}")
+
+                                        st.markdown("---")
+                                        col_a, col_b = st.columns(2)
+                                        contact_key = f"contact_{idx}"
+                                        shortlist_key = f"shortlist_{idx}"
+                                        with col_a:
+                                            if st.button(f"✉️ Contact {student['Name']}", key=contact_key):
+                                                st.session_state.contact_msgs.append(f"Contact email: {student['Email']} (to {student['Name']})")
+                                        with col_b:
+                                            if st.button(f"⭐ Shortlist {student['Name']}", key=shortlist_key):
+                                                st.session_state.shortlist_msgs.append(f"{student['Name']} has been shortlisted!")
+                            else:
+                                st.info("No students registered yet.")
+
+                            for msg in st.session_state.get("contact_msgs", []):
+                                st.info(msg)
+                            for msg in st.session_state.get("shortlist_msgs", []):
+                                st.success(msg)
                         else:
                             st.info("No students registered yet.")
-                    else:
-                        st.info("No students registered yet.")
             else:
                 st.error("❌ No companies registered yet.")
 
