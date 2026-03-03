@@ -25,13 +25,14 @@ if choice == "Student Registration":
         with st.form("reg_form"):
             name = st.text_input("Full Name")
             email = st.text_input("College Email")
+            password = st.text_input("Set Password", type="password")
             cgpa = st.number_input("Current CGPA", min_value=0.0, max_value=10.0, step=0.1)
             branch = st.selectbox("Branch", ["CSE", "IT", "ECE", "MECH"])
             
             submitted = st.form_submit_button("Submit Application")
             
             if submitted:
-                new_data = {"Name": [name], "Email": [email], "CGPA": [cgpa], "Branch": [branch]}
+                new_data = {"Name": [name], "Email": [email], "Password": [password], "CGPA": [cgpa], "Branch": [branch]}
                 new_df = pd.DataFrame(new_data)
                 
                 if os.path.exists("database.csv"):
@@ -170,13 +171,16 @@ elif choice == "Company Registration":
     st.subheader("Post a Job Opening (For HR/Companies)")
     with st.form("company_form"):
         company_name = st.text_input("Company Name")
+        company_email = st.text_input("Company Email")
+        address = st.text_input("Company Address")
+        password = st.text_input("Set Password", type="password")
         package = st.text_input("Salary Package (e.g., 10 LPA)")
         criteria = st.text_input("Eligibility Criteria (e.g., 8.0 CGPA, No Backlogs)")
         
         submitted_company = st.form_submit_button("Post Job Drive")
         
         if submitted_company:
-            company_data = {"Company": [company_name], "Package": [package], "Criteria": [criteria]}
+            company_data = {"Company": [company_name], "Email": [company_email], "Address": [address], "Password": [password], "Package": [package], "Criteria": [criteria]}
             company_df = pd.DataFrame(company_data)
             
             # Save to a separate companies.csv file
@@ -192,20 +196,21 @@ elif choice == "Company Registration":
 # ==========================================
 elif choice == "Company Login":
     st.subheader("🏢 Company Login")
-    st.write("Login to view and connect with eligible students.")
+    st.write("Login with email and password to view and connect with eligible students.")
     
     company_email = st.text_input("Enter your Company Email")
+    pwd = st.text_input("Password", type="password")
     if st.button("Company Login"):
-        if not company_email.strip():
-            st.error("Please enter your email.")
+        if not company_email.strip() or not pwd:
+            st.error("Please enter both email and password.")
         else:
             # Check if company exists
             if os.path.exists("companies.csv"):
                 df_companies = pd.read_csv("companies.csv")
-                company = df_companies[df_companies["Company"].str.strip().str.lower() == company_email.strip().lower()]
+                company = df_companies[(df_companies["Email"].str.strip().str.lower() == company_email.strip().lower()) & (df_companies["Password"] == pwd)]
                 
                 if company.empty:
-                    st.error("❌ Company not found. Please register first in Company Registration.")
+                    st.error("❌ Invalid credentials. Make sure you registered and use correct password.")
                 else:
                     company_name = company.iloc[0]['Company']
                     criteria = company.iloc[0]['Criteria']
@@ -217,6 +222,7 @@ elif choice == "Company Login":
                     col1, col2 = st.columns(2)
                     with col1:
                         st.write(f"**Company:** {company_name}")
+                        st.write(f"**Address:** {company.iloc[0]['Address']}")
                     with col2:
                         st.write(f"**Package:** {package}")
                     
@@ -277,20 +283,21 @@ elif choice == "Job Board":
 # ==========================================
 elif choice == "Student Login":
     st.subheader("🔐 Student Login")
-    st.write("Login with your email to view your allocation status.")
+    st.write("Login with your email and password to view your allocation status.")
     
     email = st.text_input("Enter your College Email")
+    pwd = st.text_input("Password", type="password")
     if st.button("Login"):
-        if not email.strip():
-            st.error("Please enter your email.")
+        if not email.strip() or not pwd:
+            st.error("Please enter both email and password.")
         else:
             # Check if student is registered
             if os.path.exists("database.csv"):
                 df_students = pd.read_csv("database.csv")
-                student = df_students[df_students["Email"].str.strip() == email.strip()]
+                student = df_students[(df_students["Email"].str.strip() == email.strip()) & (df_students["Password"] == pwd)]
                 
                 if student.empty:
-                    st.error("❌ Email not found. Please register first in Student Registration.")
+                    st.error("❌ Invalid credentials. Make sure you registered and use correct password.")
                 else:
                     st.success(f"✅ Welcome, {student.iloc[0]['Name']}!")
                     
