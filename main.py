@@ -7,6 +7,19 @@ st.set_page_config(page_title="Placement Portal", layout="centered")
 st.title("🎓 College Placement Portal")
 st.write("Welcome! Register your details or view upcoming company drives.")
 
+# helper for robust CSV reading
+import pandas as _pd
+
+def safe_read_csv(path, **kwargs):
+    try:
+        return _pd.read_csv(path, on_bad_lines='skip', **kwargs)
+    except Exception as err:
+        st.error(f"Error loading {path}: {err}")
+        return _pd.DataFrame()
+
+# alias the safe reader for convenience
+pd_read = safe_read_csv
+
 # We updated the menu to include the new features
 menu = ["Student Registration", "Student Login", "Company Registration", "Company Login", "Job Board", "Admin Dashboard"]
 choice = st.sidebar.selectbox("Navigation", menu)
@@ -206,7 +219,7 @@ elif choice == "Company Login":
         else:
             # Check if company exists
             if os.path.exists("companies.csv"):
-                df_companies = pd.read_csv("companies.csv")
+                df_companies = pd_read("companies.csv")
                 company = df_companies[(df_companies["Email"].str.strip().str.lower() == company_email.strip().lower()) & (df_companies["Password"] == pwd)]
                 
                 if company.empty:
@@ -231,7 +244,7 @@ elif choice == "Company Login":
                     
                     # Show eligible students
                     if os.path.exists("database.csv"):
-                        df_students = pd.read_csv("database.csv")
+                        df_students = pd_read("database.csv")
                         
                         st.write("### 👥 All Registered Students")
                         
@@ -273,7 +286,7 @@ elif choice == "Job Board":
     
     # This now reads from the live file instead of hardcoded text
     if os.path.exists("companies.csv"):
-        df_companies = pd.read_csv("companies.csv")
+        df_companies = pd_read("companies.csv")
         st.dataframe(df_companies, use_container_width=True)
     else:
         st.info("No companies have posted job drives yet. Check back later!")
@@ -293,7 +306,7 @@ elif choice == "Student Login":
         else:
             # Check if student is registered
             if os.path.exists("database.csv"):
-                df_students = pd.read_csv("database.csv")
+                df_students = pd_read("database.csv")
                 student = df_students[(df_students["Email"].str.strip() == email.strip()) & (df_students["Password"] == pwd)]
                 
                 if student.empty:
@@ -314,7 +327,7 @@ elif choice == "Student Login":
                     
                     # Check allocation
                     if os.path.exists("allocations.csv"):
-                        df_alloc = pd.read_csv("allocations.csv")
+                        df_alloc = pd_read("allocations.csv")
                         allocation = df_alloc[df_alloc["Student_Email"].str.strip() == email.strip()]
                         
                         if not allocation.empty:
@@ -344,7 +357,7 @@ elif choice == "Admin Dashboard":
         with tab_students:
             st.write("### Registered Students")
             if os.path.exists("database.csv"):
-                df_students = pd.read_csv("database.csv")
+                df_students = pd_read("database.csv")
                 st.dataframe(df_students, use_container_width=True)
                 csv_students = df_students.to_csv(index=False).encode('utf-8')
                 st.download_button("Download Student List (CSV)", data=csv_students, file_name="students.csv")
@@ -396,7 +409,7 @@ elif choice == "Admin Dashboard":
             # View all allocations
             if os.path.exists("allocations.csv"):
                 st.write("### Current Allocations")
-                df_allocations = pd.read_csv("allocations.csv")
+                df_allocations = pd_read("allocations.csv")
                 st.dataframe(df_allocations, use_container_width=True)
                 csv_alloc = df_allocations.to_csv(index=False).encode('utf-8')
                 st.download_button("Download Allocations (CSV)", data=csv_alloc, file_name="allocations.csv")
