@@ -392,7 +392,8 @@ elif choice == "Admin Dashboard":
         with tab_companies:
             st.write("### Registered Companies")
             if os.path.exists("companies.csv"):
-                df_comps = pd.read_csv("companies.csv")
+                df_comps = pd_read("companies.csv")
+                df_comps = ensure_columns(df_comps, ["Company","Email","Address","Password","Package","Criteria"])
                 st.dataframe(df_comps, use_container_width=True)
                 csv_comps = df_comps.to_csv(index=False).encode('utf-8')
                 st.download_button("Download Company List (CSV)", data=csv_comps, file_name="companies.csv")
