@@ -8,7 +8,7 @@ st.title("🎓 College Placement Portal")
 st.write("Welcome! Register your details or view upcoming company drives.")
 
 # We updated the menu to include the new features
-menu = ["Student Registration", "Student Login", "Company Registration", "Job Board", "Admin Dashboard"]
+menu = ["Student Registration", "Student Login", "Company Registration", "Company Login", "Job Board", "Admin Dashboard"]
 choice = st.sidebar.selectbox("Navigation", menu)
 
 # ==========================================
@@ -95,50 +95,73 @@ if choice == "Student Registration":
                 
                 # generate PDF
                 try:
-                    from fpdf import FPDF
-                    import io
+                    from reportlab.lib.pagesizes import letter
+                    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+                    from reportlab.lib.units import inch
+                    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+                    from reportlab.lib import colors
+                    from io import BytesIO
                     
-                    pdf = FPDF()
-                    pdf.add_page()
-                    pdf.set_font("Arial", 'B', 16)
-                    pdf.cell(0, 10, r_name, ln=True, align='C')
-                    pdf.set_font("Arial", size=12)
-                    pdf.ln(4)
-                    pdf.cell(0, 8, f"Email: {r_email}", ln=True)
-                    pdf.cell(0, 8, f"Phone: {r_phone}", ln=True)
-                    pdf.ln(4)
+                    pdf_buffer = BytesIO()
+                    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
+                    
+                    story = []
+                    styles = getSampleStyleSheet()
+                    
+                    # Title
+                    title_style = ParagraphStyle(
+                        'CustomTitle',
+                        parent=styles['Heading1'],
+                        fontSize=18,
+                        textColor=colors.HexColor('#1f77b4'),
+                        spaceAfter=6,
+                        alignment=1
+                    )
+                    story.append(Paragraph(r_name, title_style))
+                    
+                    # Contact Info
+                    contact_style = ParagraphStyle(
+                        'Contact',
+                        parent=styles['Normal'],
+                        fontSize=10,
+                        alignment=1
+                    )
+                    story.append(Paragraph(f"<b>Email:</b> {r_email} | <b>Phone:</b> {r_phone}", contact_style))
+                    story.append(Spacer(1, 0.2*inch))
+                    
+                    # Summary
                     if r_summary.strip():
-                        pdf.set_font("Arial", 'B', 14)
-                        pdf.cell(0, 8, "Summary", ln=True)
-                        pdf.set_font("Arial", size=12)
-                        pdf.multi_cell(0, 6, r_summary)
-                        pdf.ln(2)
-                    if r_education.strip():
-                        pdf.set_font("Arial", 'B', 14)
-                        pdf.cell(0, 8, "Education", ln=True)
-                        pdf.set_font("Arial", size=12)
-                        for line in r_education.strip().splitlines():
-                            pdf.cell(0, 6, f"- {line}", ln=True)
-                        pdf.ln(2)
-                    if r_skills.strip():
-                        pdf.set_font("Arial", 'B', 14)
-                        pdf.cell(0, 8, "Skills", ln=True)
-                        pdf.set_font("Arial", size=12)
-                        for skill in r_skills.split(","):
-                            pdf.cell(0, 6, f"- {skill.strip()}", ln=True)
-                        pdf.ln(2)
-                    if r_projects.strip():
-                        pdf.set_font("Arial", 'B', 14)
-                        pdf.cell(0, 8, "Projects", ln=True)
-                        pdf.set_font("Arial", size=12)
-                        for line in r_projects.strip().splitlines():
-                            pdf.cell(0, 6, f"- {line}", ln=True)
-                        pdf.ln(2)
+                        story.append(Paragraph("<b>Professional Summary</b>", styles['Heading2']))
+                        story.append(Paragraph(r_summary, styles['Normal']))
+                        story.append(Spacer(1, 0.15*inch))
                     
-                    pdf_bytes = pdf.output(dest='S').encode('latin-1')
-                    st.download_button("Download Resume (PDF)", data=pdf_bytes, file_name="resume.pdf", mime="application/pdf")
+                    # Education
+                    if r_education.strip():
+                        story.append(Paragraph("<b>Education</b>", styles['Heading2']))
+                        for line in r_education.strip().splitlines():
+                            story.append(Paragraph(f"• {line}", styles['Normal']))
+                        story.append(Spacer(1, 0.15*inch))
+                    
+                    # Skills
+                    if r_skills.strip():
+                        story.append(Paragraph("<b>Skills</b>", styles['Heading2']))
+                        skills_list = ", ".join([s.strip() for s in r_skills.split(",")])
+                        story.append(Paragraph(skills_list, styles['Normal']))
+                        story.append(Spacer(1, 0.15*inch))
+                    
+                    # Projects
+                    if r_projects.strip():
+                        story.append(Paragraph("<b>Projects</b>", styles['Heading2']))
+                        for line in r_projects.strip().splitlines():
+                            story.append(Paragraph(f"• {line}", styles['Normal']))
+                        story.append(Spacer(1, 0.15*inch))
+                    
+                    # Build PDF
+                    doc.build(story)
+                    pdf_bytes = pdf_buffer.getvalue()
+                    st.download_button("📥 Download Resume (PDF)", data=pdf_bytes, file_name="resume.pdf", mime="application/pdf")
                 except ImportError:
-                    st.warning("PDF generation requires the 'fpdf' package. Add it to requirements and rebuild the environment.")
+                    st.warning("PDF generation requires the 'reportlab' package. Install it from requirements.")
 
 # ==========================================
 # 3. COMPANY REGISTRATION PAGE (NEW)
@@ -163,6 +186,78 @@ elif choice == "Company Registration":
                 company_df.to_csv("companies.csv", index=False)
             
             st.success(f"Job drive for {company_name} has been posted successfully!")
+
+# ==========================================
+# 3.5 COMPANY LOGIN PAGE
+# ==========================================
+elif choice == "Company Login":
+    st.subheader("🏢 Company Login")
+    st.write("Login to view and connect with eligible students.")
+    
+    company_email = st.text_input("Enter your Company Email")
+    if st.button("Company Login"):
+        if not company_email.strip():
+            st.error("Please enter your email.")
+        else:
+            # Check if company exists
+            if os.path.exists("companies.csv"):
+                df_companies = pd.read_csv("companies.csv")
+                company = df_companies[df_companies["Company"].str.strip().str.lower() == company_email.strip().lower()]
+                
+                if company.empty:
+                    st.error("❌ Company not found. Please register first in Company Registration.")
+                else:
+                    company_name = company.iloc[0]['Company']
+                    criteria = company.iloc[0]['Criteria']
+                    package = company.iloc[0]['Package']
+                    
+                    st.success(f"✅ Welcome, {company_name}!")
+                    
+                    # Show company details
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Company:** {company_name}")
+                    with col2:
+                        st.write(f"**Package:** {package}")
+                    
+                    st.write(f"**Eligibility Criteria:** {criteria}")
+                    st.markdown("---")
+                    
+                    # Show eligible students
+                    if os.path.exists("database.csv"):
+                        df_students = pd.read_csv("database.csv")
+                        
+                        st.write("### 👥 All Registered Students")
+                        
+                        # Display all students with their resumes
+                        if not df_students.empty:
+                            for idx, student in df_students.iterrows():
+                                with st.expander(f"📄 {student['Name']} - {student['Branch']} (CGPA: {student['CGPA']})"):
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        st.write(f"**Email:** {student['Email']}")
+                                        st.write(f"**CGPA:** {student['CGPA']}")
+                                    with col2:
+                                        st.write(f"**Branch:** {student['Branch']}")
+                                    
+                                    st.markdown("---")
+                                    
+                                    # Action buttons
+                                    col_a, col_b = st.columns(2)
+                                    with col_a:
+                                        if st.button(f"✉️ Contact {student['Name']}", key=f"contact_{idx}"):
+                                            st.info(f"Contact email: {student['Email']}")
+                                            st.success(f"Message sent to {student['Name']}!")
+                                    
+                                    with col_b:
+                                        if st.button(f"⭐ Shortlist {student['Name']}", key=f"shortlist_{idx}"):
+                                            st.success(f"{student['Name']} has been shortlisted!")
+                        else:
+                            st.info("No students registered yet.")
+                    else:
+                        st.info("No students registered yet.")
+            else:
+                st.error("❌ No companies registered yet.")
 
 # ==========================================
 # 4. JOB BOARD PAGE (DYNAMIC)
