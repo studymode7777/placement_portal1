@@ -285,8 +285,7 @@ elif choice == "Company Login":
                     if stored_pwd.endswith('.0') and stored_pwd[:-2].isdigit():
                         stored_pwd = stored_pwd[:-2]
                     if stored_pwd != pwd.strip():
-                        st.error("❌ Incorrect password. Use the one you set during registration.")
-                        st.write("*(stored password for debugging: '" + stored_pwd + "')*")
+                        st.error("❌ Incorrect password. Use the password set during registration or reset your account.")
                     else:
                         company = match.iloc[0]
                         company_name = company['Company']
@@ -398,8 +397,7 @@ elif choice == "Student Login":
                     if stored_pwd.endswith('.0') and stored_pwd[:-2].isdigit():
                         stored_pwd = stored_pwd[:-2]
                     if stored_pwd != pwd.strip():
-                        st.error("❌ Incorrect password. Try again or reset your registration.")
-                        st.write("*(stored password for debugging: '" + stored_pwd + "')*")
+                        st.error("❌ Incorrect password. Try again or contact admin for account help.")
                     else:
                         student = match.iloc[0]
                         st.success(f"✅ Welcome, {student['Name']}!")
