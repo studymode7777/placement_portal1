@@ -75,16 +75,21 @@ if choice == "Student Registration":
             name = st.text_input("Full Name")
             email = st.text_input("College Email")
             password = st.text_input("Set Password", type="password")
+            confirm = st.text_input("Confirm Password", type="password")
             cgpa = st.number_input("Current CGPA", min_value=0.0, max_value=10.0, step=0.1)
             branch = st.selectbox("Branch", ["CSE", "IT", "ECE", "MECH"])
             
             submitted = st.form_submit_button("Submit Application")
             
             if submitted:
-                row = {"Name": name, "Email": email, "Password": password, "CGPA": cgpa, "Branch": branch}
-                append_csv("database.csv", row, cols_order=["Name","Email","Password","CGPA","Branch"])
-                
-                st.success(f"Best of luck, {name}! Your data has been permanently saved.")
+                if password != confirm:
+                    st.error("Passwords do not match.")
+                else:
+                    pwd_clean = password.strip()
+                    row = {"Name": name.strip(), "Email": email.strip().lower(), "Password": pwd_clean, "CGPA": cgpa, "Branch": branch}
+                    append_csv("database.csv", row, cols_order=["Name","Email","Password","CGPA","Branch"])
+                    
+                    st.success(f"Best of luck, {name}! Your data has been permanently saved.")
     
     # TAB 2: Resume Builder
     with tab2:
@@ -218,16 +223,21 @@ elif choice == "Company Registration":
         company_email = st.text_input("Company Email")
         address = st.text_input("Company Address")
         password = st.text_input("Set Password", type="password")
+        confirm = st.text_input("Confirm Password", type="password")
         package = st.text_input("Salary Package (e.g., 10 LPA)")
         criteria = st.text_input("Eligibility Criteria (e.g., 8.0 CGPA, No Backlogs)")
         
         submitted_company = st.form_submit_button("Post Job Drive")
         
         if submitted_company:
-            row = {"Company": company_name, "Email": company_email, "Address": address, "Password": password, "Package": package, "Criteria": criteria}
-            append_csv("companies.csv", row, cols_order=["Company","Email","Address","Password","Package","Criteria"])
-            
-            st.success(f"Job drive for {company_name} has been posted successfully!")
+            if password != confirm:
+                st.error("Passwords do not match.")
+            else:
+                pwd_clean = password.strip()
+                row = {"Company": company_name.strip(), "Email": company_email.strip().lower(), "Address": address.strip(), "Password": pwd_clean, "Package": package, "Criteria": criteria}
+                append_csv("companies.csv", row, cols_order=["Company","Email","Address","Password","Package","Criteria"])
+                
+                st.success(f"Job drive for {company_name} has been posted successfully!")
 
 # ==========================================
 # 3.5 COMPANY LOGIN PAGE
@@ -248,12 +258,14 @@ elif choice == "Company Login":
                 df_companies = pd_read("companies.csv")
                 df_companies = ensure_columns(df_companies, ["Email","Password","Company","Address","Package","Criteria"])
                 # find matching row
-                match = df_companies[ df_companies["Email"].str.strip().str.lower() == company_email.strip().lower() ]
+                match = df_companies[ df_companies["Email"].astype(str).str.strip().str.lower() == company_email.strip().lower() ]
                 if match.empty:
                     st.error("❌ Company email not found. Check registration.")
                 else:
-                    if match.iloc[0]["Password"] != pwd:
+                    stored_pwd = str(match.iloc[0]["Password"]).strip()
+                    if stored_pwd != pwd.strip():
                         st.error("❌ Incorrect password. Use the one you set during registration.")
+                        st.write("*(stored password for debugging: '" + stored_pwd + "')*")
                     else:
                         company = match.iloc[0]
                         company_name = company['Company']
@@ -290,14 +302,22 @@ elif choice == "Company Login":
                                     
                                     # Action buttons
                                     col_a, col_b = st.columns(2)
+                                    contact_key = f"contact_{idx}"
+                                    shortlist_key = f"shortlist_{idx}"
                                     with col_a:
-                                        if st.button(f"✉️ Contact {student['Name']}", key=f"contact_{idx}"):
-                                            st.info(f"Contact email: {student['Email']}")
-                                            st.success(f"Message sent to {student['Name']}!")
+                                        if st.button(f"✉️ Contact {student['Name']}", key=contact_key):
+                                            st.session_state[contact_key] = True
                                     
                                     with col_b:
-                                        if st.button(f"⭐ Shortlist {student['Name']}", key=f"shortlist_{idx}"):
-                                            st.success(f"{student['Name']} has been shortlisted!")
+                                        if st.button(f"⭐ Shortlist {student['Name']}", key=shortlist_key):
+                                            st.session_state[shortlist_key] = True
+                                    
+                                    # show messages persisted after rerun
+                                    if st.session_state.get(contact_key):
+                                        st.info(f"Contact email: {student['Email']}")
+                                        st.success(f"Message sent to {student['Name']}!")
+                                    if st.session_state.get(shortlist_key):
+                                        st.success(f"{student['Name']} has been shortlisted!")
                         else:
                             st.info("No students registered yet.")
                     else:
@@ -344,8 +364,10 @@ elif choice == "Student Login":
                 if match.empty:
                     st.error("❌ Email not found. Please register first.")
                 else:
-                    if match.iloc[0]["Password"] != pwd:
+                    stored_pwd = str(match.iloc[0]["Password"]).strip()
+                    if stored_pwd != pwd.strip():
                         st.error("❌ Incorrect password. Try again or reset your registration.")
+                        st.write("*(stored password for debugging: '" + stored_pwd + "')*")
                     else:
                         student = match.iloc[0]
                         st.success(f"✅ Welcome, {student['Name']}!")
