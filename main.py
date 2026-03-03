@@ -247,23 +247,27 @@ elif choice == "Company Login":
             if os.path.exists("companies.csv"):
                 df_companies = pd_read("companies.csv")
                 df_companies = ensure_columns(df_companies, ["Email","Password","Company","Address","Package","Criteria"])
-                company = df_companies[(df_companies["Email"].str.strip().str.lower() == company_email.strip().lower()) & (df_companies["Password"] == pwd)]
-                
-                if company.empty:
-                    st.error("❌ Invalid credentials. Make sure you registered and use correct password.")
+                # find matching row
+                match = df_companies[ df_companies["Email"].str.strip().str.lower() == company_email.strip().lower() ]
+                if match.empty:
+                    st.error("❌ Company email not found. Check registration.")
                 else:
-                    company_name = company.iloc[0]['Company']
-                    criteria = company.iloc[0]['Criteria']
-                    package = company.iloc[0]['Package']
-                    
-                    st.success(f"✅ Welcome, {company_name}!")
-                    
-                    # Show company details (including package & criteria)
-                    st.markdown("### Your Posting Details")
-                    st.write(f"**Package:** {package}")
-                    st.write(f"**Eligibility Criteria:** {criteria}")
-                    st.write(f"**Address:** {company.iloc[0]['Address']}")
-                    st.markdown("---")
+                    if match.iloc[0]["Password"] != pwd:
+                        st.error("❌ Incorrect password. Use the one you set during registration.")
+                    else:
+                        company = match.iloc[0]
+                        company_name = company['Company']
+                        criteria = company['Criteria']
+                        package = company['Package']
+                        
+                        st.success(f"✅ Welcome, {company_name}!")
+                        
+                        # Show company details (including package & criteria)
+                        st.markdown("### Your Posting Details")
+                        st.write(f"**Package:** {package}")
+                        st.write(f"**Eligibility Criteria:** {criteria}")
+                        st.write(f"**Address:** {company['Address']}")
+                        st.markdown("---")
                     
                     # Show eligible students
                     if os.path.exists("database.csv"):
@@ -307,10 +311,15 @@ elif choice == "Company Login":
 elif choice == "Job Board":
     st.subheader("Hiring Companies & Job Openings")
     
-    # This now reads from the live file instead of hardcoded text
+    # read companies but hide sensitive info
     if os.path.exists("companies.csv"):
         df_companies = pd_read("companies.csv")
-        st.dataframe(df_companies, use_container_width=True)
+        df_companies = ensure_columns(df_companies, ["Company","Email","Address","Password","Package","Criteria"])
+        display_df = df_companies.copy()
+        for col in ["Email","Password"]:
+            if col in display_df.columns:
+                display_df.drop(columns=[col], inplace=True)
+        st.dataframe(display_df, use_container_width=True)
     else:
         st.info("No companies have posted job drives yet. Check back later!")
 
@@ -331,12 +340,15 @@ elif choice == "Student Login":
             if os.path.exists("database.csv"):
                 df_students = pd_read("database.csv")
                 df_students = ensure_columns(df_students, ["Email","Password","Name","Branch","CGPA"])
-                student = df_students[(df_students["Email"].str.strip() == email.strip()) & (df_students["Password"] == pwd)]
-                
-                if student.empty:
-                    st.error("❌ Invalid credentials. Make sure you registered and use correct password.")
+                match = df_students[ df_students["Email"].str.strip() == email.strip() ]
+                if match.empty:
+                    st.error("❌ Email not found. Please register first.")
                 else:
-                    st.success(f"✅ Welcome, {student.iloc[0]['Name']}!")
+                    if match.iloc[0]["Password"] != pwd:
+                        st.error("❌ Incorrect password. Try again or reset your registration.")
+                    else:
+                        student = match.iloc[0]
+                        st.success(f"✅ Welcome, {student['Name']}!")
                     
                     # Show student profile
                     col1, col2 = st.columns(2)
