@@ -17,6 +17,42 @@ def safe_read_csv(path, **kwargs):
         st.error(f"Error loading {path}: {err}")
         return _pd.DataFrame()
 
+# columns ensuring for older files
+
+def ensure_columns(df, cols):
+    """Make sure dataframe contains at least the listed columns (fill empty where missing)."""
+    for c in cols:
+        if c not in df.columns:
+            df[c] = ""
+    return df
+
+# helpers to append rows with schema patching
+
+def append_csv(path, row_dict, cols_order=None):
+    """Append a row to csv; if file exists ensure columns include row keys and cols_order."""
+    df_row = _pd.DataFrame([row_dict])
+    if os.path.exists(path):
+        existing = safe_read_csv(path)
+        # unify columns
+        for col in df_row.columns:
+            if col not in existing.columns:
+                existing[col] = ""
+        for col in existing.columns:
+            if col not in df_row.columns:
+                df_row[col] = ""
+        # re-order if requested
+        if cols_order:
+            existing = existing.reindex(columns=cols_order)
+            df_row = df_row.reindex(columns=cols_order)
+        # write back full file then append new row
+        existing.to_csv(path, index=False)
+        df_row.to_csv(path, mode='a', index=False, header=False)
+    else:
+        # write new file with row
+        if cols_order:
+            df_row = df_row.reindex(columns=cols_order)
+        df_row.to_csv(path, index=False)
+
 # alias the safe reader for convenience
 pd_read = safe_read_csv
 
@@ -45,13 +81,8 @@ if choice == "Student Registration":
             submitted = st.form_submit_button("Submit Application")
             
             if submitted:
-                new_data = {"Name": [name], "Email": [email], "Password": [password], "CGPA": [cgpa], "Branch": [branch]}
-                new_df = pd.DataFrame(new_data)
-                
-                if os.path.exists("database.csv"):
-                    new_df.to_csv("database.csv", mode='a', index=False, header=False)
-                else:
-                    new_df.to_csv("database.csv", index=False)
+                row = {"Name": name, "Email": email, "Password": password, "CGPA": cgpa, "Branch": branch}
+                append_csv("database.csv", row, cols_order=["Name","Email","Password","CGPA","Branch"])
                 
                 st.success(f"Best of luck, {name}! Your data has been permanently saved.")
     
@@ -193,14 +224,8 @@ elif choice == "Company Registration":
         submitted_company = st.form_submit_button("Post Job Drive")
         
         if submitted_company:
-            company_data = {"Company": [company_name], "Email": [company_email], "Address": [address], "Password": [password], "Package": [package], "Criteria": [criteria]}
-            company_df = pd.DataFrame(company_data)
-            
-            # Save to a separate companies.csv file
-            if os.path.exists("companies.csv"):
-                company_df.to_csv("companies.csv", mode='a', index=False, header=False)
-            else:
-                company_df.to_csv("companies.csv", index=False)
+            row = {"Company": company_name, "Email": company_email, "Address": address, "Password": password, "Package": package, "Criteria": criteria}
+            append_csv("companies.csv", row, cols_order=["Company","Email","Address","Password","Package","Criteria"])
             
             st.success(f"Job drive for {company_name} has been posted successfully!")
 
@@ -210,6 +235,7 @@ elif choice == "Company Registration":
 elif choice == "Company Login":
     st.subheader("🏢 Company Login")
     st.write("Login with email and password to view and connect with eligible students.")
+    st.write("(After login you will see your posted salary package and eligibility criteria)")
     
     company_email = st.text_input("Enter your Company Email")
     pwd = st.text_input("Password", type="password")
@@ -220,6 +246,7 @@ elif choice == "Company Login":
             # Check if company exists
             if os.path.exists("companies.csv"):
                 df_companies = pd_read("companies.csv")
+                df_companies = ensure_columns(df_companies, ["Email","Password","Company","Address","Package","Criteria"])
                 company = df_companies[(df_companies["Email"].str.strip().str.lower() == company_email.strip().lower()) & (df_companies["Password"] == pwd)]
                 
                 if company.empty:
@@ -231,15 +258,11 @@ elif choice == "Company Login":
                     
                     st.success(f"✅ Welcome, {company_name}!")
                     
-                    # Show company details
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.write(f"**Company:** {company_name}")
-                        st.write(f"**Address:** {company.iloc[0]['Address']}")
-                    with col2:
-                        st.write(f"**Package:** {package}")
-                    
+                    # Show company details (including package & criteria)
+                    st.markdown("### Your Posting Details")
+                    st.write(f"**Package:** {package}")
                     st.write(f"**Eligibility Criteria:** {criteria}")
+                    st.write(f"**Address:** {company.iloc[0]['Address']}")
                     st.markdown("---")
                     
                     # Show eligible students
@@ -307,6 +330,7 @@ elif choice == "Student Login":
             # Check if student is registered
             if os.path.exists("database.csv"):
                 df_students = pd_read("database.csv")
+                df_students = ensure_columns(df_students, ["Email","Password","Name","Branch","CGPA"])
                 student = df_students[(df_students["Email"].str.strip() == email.strip()) & (df_students["Password"] == pwd)]
                 
                 if student.empty:
