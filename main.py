@@ -391,38 +391,44 @@ elif choice == "Student Login":
                     st.error("❌ Email not found. Please register first.")
                 else:
                     stored_pwd = str(match.iloc[0]["Password"]).strip()
+                    # convert nan to empty
+                    if stored_pwd.lower() == 'nan':
+                        stored_pwd = ''
+                    # strip trailing .0 if accidentally treated as float
+                    if stored_pwd.endswith('.0') and stored_pwd[:-2].isdigit():
+                        stored_pwd = stored_pwd[:-2]
                     if stored_pwd != pwd.strip():
                         st.error("❌ Incorrect password. Try again or reset your registration.")
                         st.write("*(stored password for debugging: '" + stored_pwd + "')*")
                     else:
                         student = match.iloc[0]
-                    st.success(f"✅ Welcome, {student['Name']}!")
-                    
-                    # Show student profile
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.write(f"**Name:** {student['Name']}")
-                        st.write(f"**Branch:** {student['Branch']}")
-                    with col2:
-                        st.write(f"**Email:** {student['Email']}")
-                        st.write(f"**CGPA:** {student['CGPA']}")
-                    
-                    st.markdown("---")
-                    
-                    # Check allocation
-                    if os.path.exists("allocations.csv"):
-                        df_alloc = pd_read("allocations.csv")
-                        allocation = df_alloc[df_alloc["Student_Email"].str.strip() == email.strip()]
+                        st.success(f"✅ Welcome, {student['Name']}!")
                         
-                        if not allocation.empty:
-                            st.success("🎉 **Allocation Status: SELECTED**")
-                            st.write(f"**Company:** {allocation.iloc[0]['Company']}")
-                            st.write(f"**Package:** {allocation.iloc[0]['Package']}")
-                            st.write(f"**Date:** {allocation.iloc[0]['Date']}")
+                        # Show student profile
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write(f"**Name:** {student['Name']}")
+                            st.write(f"**Branch:** {student['Branch']}")
+                        with col2:
+                            st.write(f"**Email:** {student['Email']}")
+                            st.write(f"**CGPA:** {student['CGPA']}")
+                        
+                        st.markdown("---")
+                        
+                        # Check allocation
+                        if os.path.exists("allocations.csv"):
+                            df_alloc = pd_read("allocations.csv")
+                            allocation = df_alloc[df_alloc["Student_Email"].str.strip() == email.strip()]
+                            
+                            if not allocation.empty:
+                                st.success("🎉 **Allocation Status: SELECTED**")
+                                st.write(f"**Company:** {allocation.iloc[0]['Company']}")
+                                st.write(f"**Package:** {allocation.iloc[0]['Package']}")
+                                st.write(f"**Date:** {allocation.iloc[0]['Date']}")
+                            else:
+                                st.info("⏳ No allocation yet. Results are pending...")
                         else:
                             st.info("⏳ No allocation yet. Results are pending...")
-                    else:
-                        st.info("⏳ No allocation yet. Results are pending...")
             else:
                 st.error("❌ No students registered yet.")
 
