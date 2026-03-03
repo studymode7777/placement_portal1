@@ -20,19 +20,34 @@ def safe_read_csv(path, **kwargs):
 # columns ensuring for older files
 
 def ensure_columns(df, cols):
-    """Make sure dataframe contains at least the listed columns (fill empty where missing)."""
+    """Make sure dataframe contains at least the listed columns (fill empty where missing).
+    Also replace NaN/None with empty string to avoid 'nan' values."""
+    df = df.copy()
+    # fill missing columns
     for c in cols:
         if c not in df.columns:
             df[c] = ""
+    # replace NaN/None
+    df = df.fillna("")
     return df
 
 # helpers to append rows with schema patching
 
 def append_csv(path, row_dict, cols_order=None):
-    """Append a row to csv; if file exists ensure columns include row keys and cols_order."""
+    """Append a row to csv; if file exists ensure columns include row keys and cols_order.
+    Also normalizes password values to strings to prevent float conversion."""
+    # ensure all values are strings (especially password)
+    for k, v in row_dict.items():
+        if k.lower() == "password":
+            row_dict[k] = str(v).strip()
+        else:
+            row_dict[k] = v
     df_row = _pd.DataFrame([row_dict])
     if os.path.exists(path):
         existing = safe_read_csv(path)
+        # convert password column to string if present
+        if "Password" in existing.columns:
+            existing["Password"] = existing["Password"].astype(str)
         # unify columns
         for col in df_row.columns:
             if col not in existing.columns:
@@ -263,6 +278,12 @@ elif choice == "Company Login":
                     st.error("❌ Company email not found. Check registration.")
                 else:
                     stored_pwd = str(match.iloc[0]["Password"]).strip()
+                    # convert nan to empty
+                    if stored_pwd.lower() == 'nan':
+                        stored_pwd = ''
+                    # strip trailing .0 if accidentally treated as float
+                    if stored_pwd.endswith('.0') and stored_pwd[:-2].isdigit():
+                        stored_pwd = stored_pwd[:-2]
                     if stored_pwd != pwd.strip():
                         st.error("❌ Incorrect password. Use the one you set during registration.")
                         st.write("*(stored password for debugging: '" + stored_pwd + "')*")
@@ -288,6 +309,12 @@ elif choice == "Company Login":
                         st.write("### 👥 All Registered Students")
                         
                         # Display all students with their resumes
+                        # initialize message lists if not present
+                        if "contact_msgs" not in st.session_state:
+                            st.session_state.contact_msgs = []
+                        if "shortlist_msgs" not in st.session_state:
+                            st.session_state.shortlist_msgs = []
+
                         if not df_students.empty:
                             for idx, student in df_students.iterrows():
                                 with st.expander(f"📄 {student['Name']} - {student['Branch']} (CGPA: {student['CGPA']})"):
@@ -306,18 +333,17 @@ elif choice == "Company Login":
                                     shortlist_key = f"shortlist_{idx}"
                                     with col_a:
                                         if st.button(f"✉️ Contact {student['Name']}", key=contact_key):
-                                            st.session_state[contact_key] = True
+                                            st.session_state.contact_msgs.append(f"Contact email: {student['Email']} (to {student['Name']})")
                                     
                                     with col_b:
                                         if st.button(f"⭐ Shortlist {student['Name']}", key=shortlist_key):
-                                            st.session_state[shortlist_key] = True
-                                    
-                                    # show messages persisted after rerun
-                                    if st.session_state.get(contact_key):
-                                        st.info(f"Contact email: {student['Email']}")
-                                        st.success(f"Message sent to {student['Name']}!")
-                                    if st.session_state.get(shortlist_key):
-                                        st.success(f"{student['Name']} has been shortlisted!")
+                                            st.session_state.shortlist_msgs.append(f"{student['Name']} has been shortlisted!")
+
+                        # display accumulated messages
+                        for msg in st.session_state.get("contact_msgs", []):
+                            st.info(msg)
+                        for msg in st.session_state.get("shortlist_msgs", []):
+                            st.success(msg)
                         else:
                             st.info("No students registered yet.")
                     else:
@@ -370,16 +396,16 @@ elif choice == "Student Login":
                         st.write("*(stored password for debugging: '" + stored_pwd + "')*")
                     else:
                         student = match.iloc[0]
-                        st.success(f"✅ Welcome, {student['Name']}!")
+                    st.success(f"✅ Welcome, {student['Name']}!")
                     
                     # Show student profile
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.write(f"**Name:** {student.iloc[0]['Name']}")
-                        st.write(f"**Branch:** {student.iloc[0]['Branch']}")
+                        st.write(f"**Name:** {student['Name']}")
+                        st.write(f"**Branch:** {student['Branch']}")
                     with col2:
-                        st.write(f"**Email:** {student.iloc[0]['Email']}")
-                        st.write(f"**CGPA:** {student.iloc[0]['CGPA']}")
+                        st.write(f"**Email:** {student['Email']}")
+                        st.write(f"**CGPA:** {student['CGPA']}")
                     
                     st.markdown("---")
                     
