@@ -184,10 +184,13 @@ elif choice == "Student Login":
         email = st.text_input("College Email").strip().lower()
         pwd = st.text_input("Password", type="password").strip()
         
-        if st.button("Login"):
+      if st.button("Login"):
             df_students = safe_read_csv("database.csv")
             if not df_students.empty:
+                # --- THE FIX: Force both columns to be strings first ---
+                df_students["Email"] = df_students["Email"].astype(str).str.strip()
                 df_students["Password"] = df_students["Password"].astype(str).str.strip()
+                
                 match = df_students[(df_students["Email"].str.lower() == email) & (df_students["Password"] == pwd)]
                 
                 if not match.empty:
