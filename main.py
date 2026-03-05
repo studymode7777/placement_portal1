@@ -23,7 +23,6 @@ st.set_page_config(page_title="College Placement Portal", layout="centered", pag
 
 def init_db():
     """Create empty CSV files with correct headers if they don't exist."""
-    # UPDATED: Added 'Boosted' column to database
     if not os.path.exists("database.csv"):
         pd.DataFrame(columns=["Name", "Email", "Password", "CGPA", "Branch", "Boosted"]).to_csv("database.csv", index=False)
     if not os.path.exists("companies.csv"):
@@ -93,6 +92,7 @@ st.title("🎓 College Placement Portal")
 menu = ["Student Registration", "Student Login", "Company Registration", "Company Login", "Job Board", "Admin Dashboard"]
 choice = st.sidebar.selectbox("Navigation", menu)
 
+
 # ==========================================
 # 1. STUDENT REGISTRATION & RESUME
 # ==========================================
@@ -121,7 +121,6 @@ if choice == "Student Registration":
                     if not df_students.empty and email in df_students["Email"].values:
                         st.error("Email already registered! Please login.")
                     else:
-                        # Ensure new students start as not boosted
                         row = {"Name": name, "Email": email, "Password": password, "CGPA": cgpa, "Branch": branch, "Boosted": "False"}
                         append_csv("database.csv", row, ["Name","Email","Password","CGPA","Branch","Boosted"])
                         st.success(f"Best of luck, {name}! Your data has been saved.")
@@ -173,8 +172,10 @@ if choice == "Student Registration":
                 pdf_bytes = pdf_buffer.getvalue()
                 st.success("Resume Generated Successfully!")
                 st.download_button(label="📥 Download Resume (PDF)", data=pdf_bytes, file_name=f"{r_name.replace(' ', '_')}_Resume.pdf", mime="application/pdf")
+
+
 # ==========================================
-# 2. STUDENT LOGIN (WITH GHOST SESSION FIX & PROFILE BOOST)
+# 2. STUDENT LOGIN
 # ==========================================
 elif choice == "Student Login":
     st.subheader("🔐 Student Login")
@@ -284,6 +285,8 @@ elif choice == "Student Login":
                 st.session_state.student_logged_in = False
                 st.session_state.current_student = None
                 st.rerun()
+
+
 # ==========================================
 # 3. COMPANY REGISTRATION
 # ==========================================
@@ -310,8 +313,9 @@ elif choice == "Company Registration":
                     append_csv("companies.csv", row, ["Company","Email","Address","Password","Package","Criteria"])
                     st.success(f"Job drive for {company_name} posted successfully!")
 
+
 # ==========================================
-# 4. COMPANY LOGIN (SORTS BOOSTED STUDENTS FIRST)
+# 4. COMPANY LOGIN
 # ==========================================
 elif choice == "Company Login":
     st.subheader("🏢 Company Dashboard")
@@ -428,8 +432,9 @@ elif choice == "Company Login":
             st.session_state.current_company = None
             st.rerun()
 
+
 # ==========================================
-# 5. JOB BOARD (WITH SMART FILTERS)
+# 5. JOB BOARD
 # ==========================================
 elif choice == "Job Board":
     st.subheader("📢 Hiring Companies & Job Openings")
@@ -482,6 +487,7 @@ elif choice == "Job Board":
             st.warning("No jobs found matching your search criteria.")
     else:
         st.info("No companies have posted job drives yet.")
+
 
 # ==========================================
 # 6. ADMIN DASHBOARD
