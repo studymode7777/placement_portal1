@@ -1,82 +1,82 @@
 import streamlit as st
 import pandas as pd
 import os
+from io import BytesIO
 
-st.set_page_config(page_title="Placement Portal", layout="centered")
+# Try importing reportlab for PDF generation
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib import colors
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
 
-st.title("🎓 College Placement Portal")
-st.write("Welcome! Register your details or view upcoming company drives.")
+st.set_page_config(page_title="Placement Portal", layout="centered", page_icon="🎓")
 
-# helper for robust CSV reading
-import pandas as _pd
+# ==========================================
+# HELPER FUNCTIONS & DB INITIALIZATION
+# ==========================================
 
-def safe_read_csv(path, **kwargs):
+def init_db():
+    """Create empty CSV files with correct headers if they don't exist."""
+    if not os.path.exists("database.csv"):
+        pd.DataFrame(columns=["Name", "Email", "Password", "CGPA", "Branch"]).to_csv("database.csv", index=False)
+    if not os.path.exists("companies.csv"):
+        pd.DataFrame(columns=["Company", "Email", "Address", "Password", "Package", "Criteria"]).to_csv("companies.csv", index=False)
+    if not os.path.exists("allocations.csv"):
+        pd.DataFrame(columns=["Student_Email", "Company", "Package", "Date"]).to_csv("allocations.csv", index=False)
+
+init_db() # Run on startup
+
+def safe_read_csv(path):
     try:
-        return _pd.read_csv(path, on_bad_lines='skip', **kwargs)
+        df = pd.read_csv(path, on_bad_lines='skip')
+        return df.fillna("")
     except Exception as err:
         st.error(f"Error loading {path}: {err}")
-        return _pd.DataFrame()
+        return pd.DataFrame()
 
-# columns ensuring for older files
-
-def ensure_columns(df, cols):
-    """Make sure dataframe contains at least the listed columns (fill empty where missing).
-    Also replace NaN/None with empty string to avoid 'nan' values."""
-    df = df.copy()
-    # fill missing columns
-    for c in cols:
-        if c not in df.columns:
-            df[c] = ""
-    # replace NaN/None
+def append_csv(path, row_dict, cols_order):
+    df = safe_read_csv(path)
+    # Ensure password is treated as a string
+    if "Password" in row_dict:
+        row_dict["Password"] = str(row_dict["Password"]).strip()
+    
+    new_row = pd.DataFrame([row_dict])
+    df = pd.concat([df, new_row], ignore_index=True)
+    
+    # Fill any NaNs created by concatenation and reorder
     df = df.fillna("")
-    return df
+    for col in cols_order:
+        if col not in df.columns:
+            df[col] = ""
+    df = df[cols_order]
+    
+    df.to_csv(path, index=False)
 
-# helpers to append rows with schema patching
+# Initialize Session States for Logins
+if "student_logged_in" not in st.session_state:
+    st.session_state.student_logged_in = False
+    st.session_state.current_student = None
 
-def append_csv(path, row_dict, cols_order=None):
-    """Append a row to csv; if file exists ensure columns include row keys and cols_order.
-    Also normalizes password values to strings to prevent float conversion."""
-    # ensure all values are strings (especially password)
-    for k, v in row_dict.items():
-        if k.lower() == "password":
-            row_dict[k] = str(v).strip()
-        else:
-            row_dict[k] = v
-    df_row = _pd.DataFrame([row_dict])
-    if os.path.exists(path):
-        existing = safe_read_csv(path)
-        # convert password column to string if present
-        if "Password" in existing.columns:
-            existing["Password"] = existing["Password"].astype(str)
-        # unify columns
-        for col in df_row.columns:
-            if col not in existing.columns:
-                existing[col] = ""
-        for col in existing.columns:
-            if col not in df_row.columns:
-                df_row[col] = ""
-        # re-order if requested
-        if cols_order:
-            existing = existing.reindex(columns=cols_order)
-            df_row = df_row.reindex(columns=cols_order)
-        # write back full file then append new row
-        existing.to_csv(path, index=False)
-        df_row.to_csv(path, mode='a', index=False, header=False)
-    else:
-        # write new file with row
-        if cols_order:
-            df_row = df_row.reindex(columns=cols_order)
-        df_row.to_csv(path, index=False)
+if "company_logged_in" not in st.session_state:
+    st.session_state.company_logged_in = False
+    st.session_state.current_company = None
 
-# alias the safe reader for convenience
-pd_read = safe_read_csv
 
-# We updated the menu to include the new features
+# ==========================================
+# NAVIGATION
+# ==========================================
+st.title("🎓 College Placement Portal")
+
 menu = ["Student Registration", "Student Login", "Company Registration", "Company Login", "Job Board", "Admin Dashboard"]
 choice = st.sidebar.selectbox("Navigation", menu)
 
 # ==========================================
-# 1. STUDENT REGISTRATION PAGE
+# 1. STUDENT REGISTRATION & RESUME
 # ==========================================
 if choice == "Student Registration":
     st.subheader("📚 Student Portal")
@@ -88,455 +88,289 @@ if choice == "Student Registration":
         st.write("Complete your basic details for placement registration.")
         with st.form("reg_form"):
             name = st.text_input("Full Name")
-            email = st.text_input("College Email")
+            email = st.text_input("College Email").strip().lower()
             password = st.text_input("Set Password", type="password")
             confirm = st.text_input("Confirm Password", type="password")
             cgpa = st.number_input("Current CGPA", min_value=0.0, max_value=10.0, step=0.1)
             branch = st.selectbox("Branch", ["CSE", "IT", "ECE", "MECH"])
             
-            submitted = st.form_submit_button("Submit Application")
-            
-            if submitted:
-                if password != confirm:
+            if st.form_submit_button("Submit Application"):
+                if not name or not email or not password:
+                    st.error("Please fill all mandatory fields.")
+                elif password != confirm:
                     st.error("Passwords do not match.")
                 else:
-                    pwd_clean = password.strip()
-                    row = {"Name": name.strip(), "Email": email.strip().lower(), "Password": pwd_clean, "CGPA": cgpa, "Branch": branch}
-                    append_csv("database.csv", row, cols_order=["Name","Email","Password","CGPA","Branch"])
-                    
-                    st.success(f"Best of luck, {name}! Your data has been permanently saved.")
-    
+                    df_students = safe_read_csv("database.csv")
+                    if email in df_students["Email"].values:
+                        st.error("Email already registered! Please login.")
+                    else:
+                        row = {"Name": name, "Email": email, "Password": password, "CGPA": cgpa, "Branch": branch}
+                        append_csv("database.csv", row, ["Name","Email","Password","CGPA","Branch"])
+                        st.success(f"Best of luck, {name}! Your data has been saved.")
+
     # TAB 2: Resume Builder
     with tab2:
         st.write("Fill in your details and download a formatted resume.")
-        
         with st.form("resume_form"):
             r_name = st.text_input("Full Name")
             r_email = st.text_input("Email")
             r_phone = st.text_input("Phone Number")
-            r_summary = st.text_area("Professional Summary", height=100)
-            r_education = st.text_area("Education (one entry per line, e.g. B.Tech CSE, 2023)", height=100)
-            r_skills = st.text_area("Skills (comma separated)", height=100)
-            r_projects = st.text_area("Projects (one per line)", height=100)
-            build = st.form_submit_button("Build Resume")
-        
-        if build:
-            errors = []
-            if not r_name.strip():
-                errors.append("Name cannot be empty.")
-            if "@" not in r_email or not r_email.strip():
-                errors.append("Please provide a valid email address.")
-            if not r_phone.isdigit() or len(r_phone) < 10:
-                errors.append("Phone number should be at least 10 digits and contain only numbers.")
-            if not r_skills.strip():
-                errors.append("Add at least one skill.")
+            r_summary = st.text_area("Professional Summary")
+            r_education = st.text_area("Education (one entry per line)")
+            r_skills = st.text_area("Skills (comma separated)")
+            r_projects = st.text_area("Projects (one per line)")
+            build = st.form_submit_button("Generate Resume")
             
-            if errors:
-                for err in errors:
-                    st.error(err)
+        if build:
+            if not REPORTLAB_AVAILABLE:
+                st.error("Please install reportlab to generate PDFs: `pip install reportlab`")
+            elif not r_name or not r_email:
+                st.error("Name and Email are required.")
             else:
-                # preview resume as markdown
-                md = f"## {r_name}\n"
-                md += f"**Email:** {r_email}  \\n"
-                md += f"**Phone:** {r_phone}  \n\n"
-                if r_summary.strip():
-                    md += f"**Summary**\n{r_summary}\n\n"
-                if r_education.strip():
-                    md += "**Education**\n"
+                # PDF Generation Logic
+                pdf_buffer = BytesIO()
+                doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
+                story = []
+                styles = getSampleStyleSheet()
+                
+                title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor('#1f77b4'), spaceAfter=6, alignment=1)
+                story.append(Paragraph(r_name, title_style))
+                story.append(Paragraph(f"<b>Email:</b> {r_email} | <b>Phone:</b> {r_phone}", styles['Normal']))
+                story.append(Spacer(1, 0.2*inch))
+                
+                if r_summary:
+                    story.append(Paragraph("<b>Professional Summary</b>", styles['Heading2']))
+                    story.append(Paragraph(r_summary, styles['Normal']))
+                    story.append(Spacer(1, 0.1*inch))
+                
+                if r_education:
+                    story.append(Paragraph("<b>Education</b>", styles['Heading2']))
                     for line in r_education.strip().splitlines():
-                        md += f"- {line}\n"
-                    md += "\n"
-                if r_skills.strip():
-                    md += "**Skills**\n"
-                    for skill in r_skills.split(","):
-                        md += f"- {skill.strip()}\n"
-                    md += "\n"
-                if r_projects.strip():
-                    md += "**Projects**\n"
+                        story.append(Paragraph(f"• {line}", styles['Normal']))
+                    story.append(Spacer(1, 0.1*inch))
+                    
+                if r_skills:
+                    story.append(Paragraph("<b>Skills</b>", styles['Heading2']))
+                    story.append(Paragraph(r_skills, styles['Normal']))
+                    story.append(Spacer(1, 0.1*inch))
+                    
+                if r_projects:
+                    story.append(Paragraph("<b>Projects</b>", styles['Heading2']))
                     for line in r_projects.strip().splitlines():
-                        md += f"- {line}\n"
-                    md += "\n"
-                st.markdown(md)
+                        story.append(Paragraph(f"• {line}", styles['Normal']))
                 
-                # generate PDF
-                try:
-                    from reportlab.lib.pagesizes import letter
-                    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-                    from reportlab.lib.units import inch
-                    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-                    from reportlab.lib import colors
-                    from io import BytesIO
-                    
-                    pdf_buffer = BytesIO()
-                    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
-                    
-                    story = []
-                    styles = getSampleStyleSheet()
-                    
-                    # Title
-                    title_style = ParagraphStyle(
-                        'CustomTitle',
-                        parent=styles['Heading1'],
-                        fontSize=18,
-                        textColor=colors.HexColor('#1f77b4'),
-                        spaceAfter=6,
-                        alignment=1
-                    )
-                    story.append(Paragraph(r_name, title_style))
-                    
-                    # Contact Info
-                    contact_style = ParagraphStyle(
-                        'Contact',
-                        parent=styles['Normal'],
-                        fontSize=10,
-                        alignment=1
-                    )
-                    story.append(Paragraph(f"<b>Email:</b> {r_email} | <b>Phone:</b> {r_phone}", contact_style))
-                    story.append(Spacer(1, 0.2*inch))
-                    
-                    # Summary
-                    if r_summary.strip():
-                        story.append(Paragraph("<b>Professional Summary</b>", styles['Heading2']))
-                        story.append(Paragraph(r_summary, styles['Normal']))
-                        story.append(Spacer(1, 0.15*inch))
-                    
-                    # Education
-                    if r_education.strip():
-                        story.append(Paragraph("<b>Education</b>", styles['Heading2']))
-                        for line in r_education.strip().splitlines():
-                            story.append(Paragraph(f"• {line}", styles['Normal']))
-                        story.append(Spacer(1, 0.15*inch))
-                    
-                    # Skills
-                    if r_skills.strip():
-                        story.append(Paragraph("<b>Skills</b>", styles['Heading2']))
-                        skills_list = ", ".join([s.strip() for s in r_skills.split(",")])
-                        story.append(Paragraph(skills_list, styles['Normal']))
-                        story.append(Spacer(1, 0.15*inch))
-                    
-                    # Projects
-                    if r_projects.strip():
-                        story.append(Paragraph("<b>Projects</b>", styles['Heading2']))
-                        for line in r_projects.strip().splitlines():
-                            story.append(Paragraph(f"• {line}", styles['Normal']))
-                        story.append(Spacer(1, 0.15*inch))
-                    
-                    # Build PDF
-                    doc.build(story)
-                    pdf_bytes = pdf_buffer.getvalue()
-                    st.download_button("📥 Download Resume (PDF)", data=pdf_bytes, file_name="resume.pdf", mime="application/pdf")
-                except ImportError:
-                    st.warning("PDF generation requires the 'reportlab' package. Install it from requirements.")
-
-# ==========================================
-# 3. COMPANY REGISTRATION PAGE (NEW)
-# ==========================================
-elif choice == "Company Registration":
-    st.subheader("Post a Job Opening (For HR/Companies)")
-    with st.form("company_form"):
-        company_name = st.text_input("Company Name")
-        company_email = st.text_input("Company Email")
-        address = st.text_input("Company Address")
-        password = st.text_input("Set Password", type="password")
-        confirm = st.text_input("Confirm Password", type="password")
-        package = st.text_input("Salary Package (e.g., 10 LPA)")
-        criteria = st.text_input("Eligibility Criteria (e.g., 8.0 CGPA, No Backlogs)")
-        
-        submitted_company = st.form_submit_button("Post Job Drive")
-        
-        if submitted_company:
-            if password != confirm:
-                st.error("Passwords do not match.")
-            else:
-                pwd_clean = password.strip()
-                row = {"Company": company_name.strip(), "Email": company_email.strip().lower(), "Address": address.strip(), "Password": pwd_clean, "Package": package, "Criteria": criteria}
-                append_csv("companies.csv", row, cols_order=["Company","Email","Address","Password","Package","Criteria"])
+                doc.build(story)
+                pdf_bytes = pdf_buffer.getvalue()
                 
-                st.success(f"Job drive for {company_name} has been posted successfully!")
+                st.success("Resume Generated Successfully!")
+                st.download_button(
+                    label="📥 Download Resume (PDF)",
+                    data=pdf_bytes,
+                    file_name=f"{r_name.replace(' ', '_')}_Resume.pdf",
+                    mime="application/pdf"
+                )
 
 # ==========================================
-# 3.5 COMPANY LOGIN PAGE
-# ==========================================
-elif choice == "Company Login":
-    st.subheader("🏢 Company Login")
-    st.write("Login with email and password to view and connect with eligible students.")
-    st.write("(After login you will see your posted salary package and eligibility criteria)")
-    
-    company_email = st.text_input("Enter your Company Email")
-    pwd = st.text_input("Password", type="password")
-    if st.button("Company Login"):
-        if not company_email.strip() or not pwd:
-            st.error("Please enter both email and password.")
-        else:
-            # Check if company exists
-            if os.path.exists("companies.csv"):
-                df_companies = pd_read("companies.csv")
-                df_companies = ensure_columns(df_companies, ["Email","Password","Company","Address","Package","Criteria"])
-                # find matching row
-                match = df_companies[ df_companies["Email"].astype(str).str.strip().str.lower() == company_email.strip().lower() ]
-                if match.empty:
-                    st.error("❌ Company email not found. Check registration.")
-                else:
-                    stored_pwd = str(match.iloc[0]["Password"]).strip()
-                    # convert nan to empty
-                    if stored_pwd.lower() == 'nan':
-                        stored_pwd = ''
-                    # strip trailing .0 if accidentally treated as float
-                    if stored_pwd.endswith('.0') and stored_pwd[:-2].isdigit():
-                        stored_pwd = stored_pwd[:-2]
-                    if stored_pwd != pwd.strip():
-                        st.error("❌ Incorrect password. Use the one you set during registration.")
-                        st.write("*(stored password for debugging: '" + stored_pwd + "')*")
-                    else:
-                        company = match.iloc[0]
-                        company_name = company['Company']
-                        criteria = company['Criteria']
-                        package = company['Package']
-                        
-                        st.success(f"✅ Welcome, {company_name}!")
-                        
-                        # Show company details (including package & criteria)
-                        st.markdown("### Your Posting Details")
-                        st.write(f"**Package:** {package}")
-                        st.write(f"**Eligibility Criteria:** {criteria}")
-                        st.write(f"**Address:** {company['Address']}")
-                        st.markdown("---")
-                    
-                    # Show eligible students
-                    if os.path.exists("database.csv"):
-                        df_students = pd_read("database.csv")
-                        
-                        st.write("### 👥 All Registered Students")
-                        
-                        # Display all students with their resumes
-                        # initialize message lists if not present
-                        if "contact_msgs" not in st.session_state:
-                            st.session_state.contact_msgs = []
-                        if "shortlist_msgs" not in st.session_state:
-                            st.session_state.shortlist_msgs = []
-
-                        if not df_students.empty:
-                            for idx, student in df_students.iterrows():
-                                with st.expander(f"📄 {student['Name']} - {student['Branch']} (CGPA: {student['CGPA']})"):
-                                    col1, col2 = st.columns(2)
-                                    with col1:
-                                        st.write(f"**Email:** {student['Email']}")
-                                        st.write(f"**CGPA:** {student['CGPA']}")
-                                    with col2:
-                                        st.write(f"**Branch:** {student['Branch']}")
-                                    
-                                    st.markdown("---")
-                                    
-                                    # Action buttons
-                                    col_a, col_b = st.columns(2)
-                                    contact_key = f"contact_{idx}"
-                                    shortlist_key = f"shortlist_{idx}"
-                                    with col_a:
-                                        if st.button(f"✉️ Contact {student['Name']}", key=contact_key):
-                                            st.session_state.contact_msgs.append(f"Contact email: {student['Email']} (to {student['Name']})")
-                                    
-                                    with col_b:
-                                        if st.button(f"⭐ Shortlist {student['Name']}", key=shortlist_key):
-                                            st.session_state.shortlist_msgs.append(f"{student['Name']} has been shortlisted!")
-
-                        # display accumulated messages
-                        for msg in st.session_state.get("contact_msgs", []):
-                            st.info(msg)
-                        for msg in st.session_state.get("shortlist_msgs", []):
-                            st.success(msg)
-                        else:
-                            st.info("No students registered yet.")
-                    else:
-                        st.info("No students registered yet.")
-            else:
-                st.error("❌ No companies registered yet.")
-
-# ==========================================
-# 4. JOB BOARD PAGE (DYNAMIC)
-# ==========================================
-elif choice == "Job Board":
-    st.subheader("Hiring Companies & Job Openings")
-    
-    # read companies but hide sensitive info
-    if os.path.exists("companies.csv"):
-        df_companies = pd_read("companies.csv")
-        df_companies = ensure_columns(df_companies, ["Company","Email","Address","Password","Package","Criteria"])
-        display_df = df_companies.copy()
-        for col in ["Email","Password"]:
-            if col in display_df.columns:
-                display_df.drop(columns=[col], inplace=True)
-        st.dataframe(display_df, use_container_width=True)
-    else:
-        st.info("No companies have posted job drives yet. Check back later!")
-
-# ==========================================
-# 2. STUDENT LOGIN PAGE
+# 2. STUDENT LOGIN
 # ==========================================
 elif choice == "Student Login":
     st.subheader("🔐 Student Login")
-    st.write("Login with your email and password to view your allocation status.")
     
-    email = st.text_input("Enter your College Email")
-    pwd = st.text_input("Password", type="password")
-    if st.button("Login"):
-        if not email.strip() or not pwd:
-            st.error("Please enter both email and password.")
-        else:
-            # Check if student is registered
-            if os.path.exists("database.csv"):
-                df_students = pd_read("database.csv")
-                df_students = ensure_columns(df_students, ["Email","Password","Name","Branch","CGPA"])
-                match = df_students[ df_students["Email"].str.strip() == email.strip() ]
-                if match.empty:
-                    st.error("❌ Email not found. Please register first.")
-                else:
-                    stored_pwd = str(match.iloc[0]["Password"]).strip()
-                    # convert nan to empty
-                    if stored_pwd.lower() == 'nan':
-                        stored_pwd = ''
-                    # strip trailing .0 if accidentally treated as float
-                    if stored_pwd.endswith('.0') and stored_pwd[:-2].isdigit():
-                        stored_pwd = stored_pwd[:-2]
-                    if stored_pwd != pwd.strip():
-                        st.error("❌ Incorrect password. Try again or reset your registration.")
-                        st.write("*(stored password for debugging: '" + stored_pwd + "')*")
-                    else:
-                        student = match.iloc[0]
-                        st.success(f"✅ Welcome, {student['Name']}!")
-                        
-                        # Show student profile
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.write(f"**Name:** {student['Name']}")
-                            st.write(f"**Branch:** {student['Branch']}")
-                        with col2:
-                            st.write(f"**Email:** {student['Email']}")
-                            st.write(f"**CGPA:** {student['CGPA']}")
-                        
-                        st.markdown("---")
-                        
-                        # Check allocation
-                        if os.path.exists("allocations.csv"):
-                            df_alloc = pd_read("allocations.csv")
-                            allocation = df_alloc[df_alloc["Student_Email"].str.strip() == email.strip()]
-                            
-                            if not allocation.empty:
-                                st.success("🎉 **Allocation Status: SELECTED**")
-                                st.write(f"**Company:** {allocation.iloc[0]['Company']}")
-                                st.write(f"**Package:** {allocation.iloc[0]['Package']}")
-                                st.write(f"**Date:** {allocation.iloc[0]['Date']}")
-                            else:
-                                st.info("⏳ No allocation yet. Results are pending...")
-                        else:
-                            st.info("⏳ No allocation yet. Results are pending...")
+    if not st.session_state.student_logged_in:
+        email = st.text_input("College Email").strip().lower()
+        pwd = st.text_input("Password", type="password").strip()
+        
+        if st.button("Login"):
+            df_students = safe_read_csv("database.csv")
+            df_students["Password"] = df_students["Password"].astype(str).str.strip()
+            
+            match = df_students[(df_students["Email"].str.lower() == email) & (df_students["Password"] == pwd)]
+            
+            if not match.empty:
+                st.session_state.student_logged_in = True
+                st.session_state.current_student = match.iloc[0].to_dict()
+                st.rerun()
             else:
-                st.error("❌ No students registered yet.")
+                st.error("❌ Invalid Email or Password.")
+    else:
+        student = st.session_state.current_student
+        st.success(f"✅ Welcome back, {student['Name']}!")
+        
+        with st.container(border=True):
+            col1, col2 = st.columns(2)
+            col1.write(f"**Branch:** {student['Branch']}")
+            col1.write(f"**CGPA:** {student['CGPA']}")
+            col2.write(f"**Email:** {student['Email']}")
+        
+        st.markdown("### 🏆 Allocation Status")
+        df_alloc = safe_read_csv("allocations.csv")
+        my_alloc = df_alloc[df_alloc["Student_Email"].str.lower() == student["Email"].lower()]
+        
+        if not my_alloc.empty:
+            alloc_data = my_alloc.iloc[0]
+            st.success("🎉 **Status: PLACED**")
+            st.write(f"**Company:** {alloc_data['Company']}")
+            st.write(f"**Package:** {alloc_data['Package']}")
+            st.write(f"**Joining Date:** {alloc_data['Date']}")
+        else:
+            st.info("⏳ Status: Pending. Keep applying and checking back!")
+            
+        if st.button("Logout", type="primary"):
+            st.session_state.student_logged_in = False
+            st.session_state.current_student = None
+            st.rerun()
 
 # ==========================================
-# 5. ADMIN DASHBOARD PAGE
+# 3. COMPANY REGISTRATION
+# ==========================================
+elif choice == "Company Registration":
+    st.subheader("🏢 Post a Job Opening")
+    with st.form("company_form"):
+        company_name = st.text_input("Company Name")
+        company_email = st.text_input("Company Email").strip().lower()
+        address = st.text_input("Company Address")
+        password = st.text_input("Set Password", type="password")
+        package = st.text_input("Salary Package (e.g., 10 LPA)")
+        criteria = st.text_input("Eligibility Criteria (e.g., 8.0 CGPA)")
+        
+        if st.form_submit_button("Register Company"):
+            if not company_name or not company_email or not password:
+                st.error("Name, Email, and Password are required.")
+            else:
+                df_comps = safe_read_csv("companies.csv")
+                if company_email in df_comps["Email"].values:
+                    st.error("Company Email already registered!")
+                else:
+                    row = {"Company": company_name, "Email": company_email, "Address": address, 
+                           "Password": password, "Package": package, "Criteria": criteria}
+                    append_csv("companies.csv", row, ["Company","Email","Address","Password","Package","Criteria"])
+                    st.success(f"Job drive for {company_name} posted successfully!")
+
+# ==========================================
+# 4. COMPANY LOGIN
+# ==========================================
+elif choice == "Company Login":
+    st.subheader("🏢 Company Dashboard")
+    
+    if not st.session_state.company_logged_in:
+        email = st.text_input("Company Email").strip().lower()
+        pwd = st.text_input("Password", type="password").strip()
+        
+        if st.button("Login"):
+            df_comps = safe_read_csv("companies.csv")
+            df_comps["Password"] = df_comps["Password"].astype(str).str.strip()
+            
+            match = df_comps[(df_comps["Email"].str.lower() == email) & (df_comps["Password"] == pwd)]
+            
+            if not match.empty:
+                st.session_state.company_logged_in = True
+                st.session_state.current_company = match.iloc[0].to_dict()
+                st.rerun()
+            else:
+                st.error("❌ Invalid Email or Password.")
+    else:
+        comp = st.session_state.current_company
+        st.success(f"✅ Dashboard: {comp['Company']}")
+        
+        with st.container(border=True):
+            st.write(f"**Active Posting Package:** {comp['Package']}")
+            st.write(f"**Criteria:** {comp['Criteria']}")
+        
+        st.markdown("### 👥 Student Pool")
+        df_students = safe_read_csv("database.csv")
+        
+        if not df_students.empty:
+            for idx, student in df_students.iterrows():
+                with st.expander(f"📄 {student['Name']} - {student['Branch']} (CGPA: {student['CGPA']})"):
+                    st.write(f"**Email:** {student['Email']}")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button(f"✉️ Contact", key=f"contact_{idx}"):
+                            st.success(f"Notification sent to {student['Name']}!")
+                    with col2:
+                        if st.button(f"⭐ Shortlist", key=f"shortlist_{idx}"):
+                            st.info(f"{student['Name']} added to shortlist.")
+        else:
+            st.info("No students registered yet.")
+            
+        if st.button("Logout", type="primary"):
+            st.session_state.company_logged_in = False
+            st.session_state.current_company = None
+            st.rerun()
+
+# ==========================================
+# 5. JOB BOARD
+# ==========================================
+elif choice == "Job Board":
+    st.subheader("📢 Hiring Companies & Job Openings")
+    df_comps = safe_read_csv("companies.csv")
+    
+    if not df_comps.empty:
+        for idx, row in df_comps.iterrows():
+            with st.container(border=True):
+                st.markdown(f"#### {row['Company']}")
+                st.write(f"**💰 Package:** {row['Package']} | **🎯 Eligibility:** {row['Criteria']}")
+                st.write(f"📍 **Location:** {row['Address']}")
+    else:
+        st.info("No companies have posted job drives yet.")
+
+# ==========================================
+# 6. ADMIN DASHBOARD
 # ==========================================
 elif choice == "Admin Dashboard":
-    st.subheader("Admin Access: Portal Data")
+    st.subheader("⚙️ Admin Access")
     
-    password = st.text_input("Enter Admin Password", type="password")
+    pwd = st.text_input("Admin Password", type="password")
     
-    if password == "college123":
-        tab_students, tab_companies, tab_allocate, tab_danger = st.tabs(["Students", "Companies", "Allocations", "Danger Zone"])
+    if pwd == "admin123": # Changed from college123 to standard admin123
+        df_students = safe_read_csv("database.csv")
+        df_comps = safe_read_csv("companies.csv")
+        df_allocs = safe_read_csv("allocations.csv")
         
-        # TAB 1: Students
-        with tab_students:
-            st.write("### Registered Students")
-            if os.path.exists("database.csv"):
-                df_students = pd_read("database.csv")
-                st.dataframe(df_students, use_container_width=True)
-                csv_students = df_students.to_csv(index=False).encode('utf-8')
-                st.download_button("Download Student List (CSV)", data=csv_students, file_name="students.csv")
-            else:
-                st.warning("No students registered yet.")
+        st.write("### 📊 Portal Analytics")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Registered Students", len(df_students))
+        c2.metric("Partner Companies", len(df_comps))
+        c3.metric("Successful Placements", len(df_allocs))
         
-        # TAB 2: Companies
-        with tab_companies:
-            st.write("### Registered Companies")
-            if os.path.exists("companies.csv"):
-                df_comps = pd_read("companies.csv")
-                df_comps = ensure_columns(df_comps, ["Company","Email","Address","Password","Package","Criteria"])
-                st.dataframe(df_comps, use_container_width=True)
-                csv_comps = df_comps.to_csv(index=False).encode('utf-8')
-                st.download_button("Download Company List (CSV)", data=csv_comps, file_name="companies.csv")
-            else:
-                st.warning("No companies registered yet.")
+        st.divider()
         
-        # TAB 3: Allocations
-        with tab_allocate:
-            st.write("### Manage Student Allocations")
-            with st.form("allocation_form"):
-                st.write("Assign a company to a student")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    student_email = st.text_input("Student Email")
-                with col2:
-                    company_name = st.text_input("Company Name")
-                
-                package = st.text_input("Package")
-                date = st.text_input("Interview Date (e.g., 2026-03-15)")
-                
-                submit_alloc = st.form_submit_button("Allocate Student")
+        t1, t2, t3, t4 = st.tabs(["Students", "Companies", "Allocations", "Danger Zone"])
+        
+        with t1:
+            st.dataframe(df_students.drop(columns=["Password"], errors='ignore'), use_container_width=True)
             
-            if submit_alloc:
-                if student_email and company_name and package and date:
-                    alloc_data = {"Student_Email": [student_email], "Company": [company_name], "Package": [package], "Date": [date]}
-                    alloc_df = pd.DataFrame(alloc_data)
+        with t2:
+            st.dataframe(df_comps.drop(columns=["Password"], errors='ignore'), use_container_width=True)
+            
+        with t3:
+            st.write("### Assign Student to Company")
+            with st.form("alloc_form"):
+                s_email = st.text_input("Student Email")
+                c_name = st.text_input("Company Name")
+                pkg = st.text_input("Final Package")
+                date = st.date_input("Offer Date")
+                
+                if st.form_submit_button("Confirm Allocation"):
+                    row = {"Student_Email": s_email, "Company": c_name, "Package": pkg, "Date": date}
+                    append_csv("allocations.csv", row, ["Student_Email", "Company", "Package", "Date"])
+                    st.success(f"Allocated {s_email} to {c_name}!")
                     
-                    if os.path.exists("allocations.csv"):
-                        alloc_df.to_csv("allocations.csv", mode='a', index=False, header=False)
-                    else:
-                        alloc_df.to_csv("allocations.csv", index=False)
-                    
-                    st.success(f"✅ {student_email} allocated to {company_name}!")
-                else:
-                    st.error("Please fill all fields.")
+            st.write("### Current Placements")
+            st.dataframe(df_allocs, use_container_width=True)
             
-            # View all allocations
-            if os.path.exists("allocations.csv"):
-                st.write("### Current Allocations")
-                df_allocations = pd_read("allocations.csv")
-                st.dataframe(df_allocations, use_container_width=True)
-                csv_alloc = df_allocations.to_csv(index=False).encode('utf-8')
-                st.download_button("Download Allocations (CSV)", data=csv_alloc, file_name="allocations.csv")
-        
-        # TAB 4: Danger Zone
-        with tab_danger:
-            st.write("### ⚠️ Danger Zone")
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                if st.button("Wipe Student Data"):
-                    if os.path.exists("database.csv"):
-                        os.remove("database.csv")
-                        st.success("Student database cleared.")
-                        st.rerun()
-                    else:
-                        st.info("Student database is already empty.")
-
-            with col2:
-                if st.button("Wipe Company Data"):
-                    if os.path.exists("companies.csv"):
-                        os.remove("companies.csv")
-                        st.success("Company database cleared.")
-                        st.rerun()
-                    else:
-                        st.info("Company database is already empty.")
-            
-            with col3:
-                if st.button("Wipe Allocation Data"):
-                    if os.path.exists("allocations.csv"):
-                        os.remove("allocations.csv")
-                        st.success("Allocation database cleared.")
-                        st.rerun()
-                    else:
-                        st.info("Allocation database is already empty.")
-            
-    elif password: 
-        st.error("Incorrect Password.")
+        with t4:
+            st.error("⚠️ Danger Zone: Actions cannot be undone.")
+            if st.button("Wipe All Student Data"):
+                os.remove("database.csv")
+                init_db()
+                st.success("Student database cleared.")
+                st.rerun()
+            if st.button("Wipe All Placements"):
+                os.remove("allocations.csv")
+                init_db()
+                st.success("Allocations cleared.")
+                st.rerun()
+                
+    elif pwd:
+        st.error("Incorrect Admin Password.")
