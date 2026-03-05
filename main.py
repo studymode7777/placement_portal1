@@ -212,52 +212,39 @@ elif choice == "Student Login":
             col1.write(f"**CGPA:** {student['CGPA']}")
             col2.write(f"**Email:** {student['Email']}")
         
-        # --- NEW FEATURE: PROFILE BOOST ---
+# --- NEW FEATURE: PROFILE BOOST ---
         st.markdown("### 🚀 Premium Features")
-        if student.get("Boosted") == "True":
+        
+        # Ensure we are treating the value as a string to prevent errors
+        is_boosted = str(student.get("Boosted")).strip()
+        
+        if is_boosted == "True":
             st.success("🔥 Your profile is BOOSTED! Companies will see your applications at the top of their lists.")
         else:
             st.info("Want to stand out? Boost your profile to appear at the top of recruiter pipelines!")
-            if st.button("💳 Pay ₹499 to Boost Profile"):
-                with st.spinner("Processing secure payment..."):
-                    time.sleep(1.5) # Simulate payment delay
-                    
-                    # Update DB
-                    df_students.loc[df_students["Email"] == student["Email"], "Boosted"] = "True"
-                    df_students.to_csv("database.csv", index=False)
-                    
-                    st.success("Payment Successful! Your profile is now prioritized.")
-                    st.rerun()
-                    
-        st.divider()
-        
-        st.markdown("### 📋 My Job Applications")
-        df_apps = safe_read_csv("applications.csv")
-        
-        if not df_apps.empty:
-            my_apps = df_apps[df_apps["Student_Email"].str.lower() == student["Email"].lower()]
-            if not my_apps.empty:
-                for idx, app in my_apps.iterrows():
-                    status = app['Status']
-                    if status == "Accepted":
-                        st.success(f"🎉 **{app['Company_Name']}** - Status: **{status}**")
-                    elif status == "Rejected":
-                        st.error(f"❌ **{app['Company_Name']}** - Status: **{status}**")
-                    elif status == "Shortlisted":
-                        st.warning(f"⭐ **{app['Company_Name']}** - Status: **{status}**")
-                    else:
-                        st.info(f"⏳ **{app['Company_Name']}** - Status: **{status}**")
-            else:
-                st.write("You haven't applied to any jobs yet. Check the Job Board!")
-        else:
-            st.write("You haven't applied to any jobs yet. Check the Job Board!")
             
-        st.markdown("---")
-        if st.button("Logout", type="primary"):
-            st.session_state.student_logged_in = False
-            st.session_state.current_student = None
-            st.rerun()
-
+            if st.button("💳 Pay ₹499 to Boost Profile"):
+                # Create a temporary container so Streamlit is FORCED to render it immediately
+                status_box = st.empty() 
+                
+                with status_box.container():
+                    with st.spinner("Processing secure payment..."):
+                        time.sleep(1.5) # Simulate payment delay
+                        
+                        # Update DB
+                        target_email = str(student["Email"]).strip().lower()
+                        df_students["Email_clean"] = df_students["Email"].astype(str).str.strip().str.lower()
+                        df_students.loc[df_students["Email_clean"] == target_email, "Boosted"] = "True"
+                        df_students = df_students.drop(columns=["Email_clean"])
+                        df_students.to_csv("database.csv", index=False)
+                        
+                        # Tell the active session state we are boosted instantly
+                        st.session_state.current_student["Boosted"] = "True"
+                
+                # Show success inside the container
+                status_box.success("🎉 Payment Successful! Your profile is now prioritized.")
+                time.sleep(1.5) # Now you will actually see it!
+                st.rerun()
 # ==========================================
 # 3. COMPANY REGISTRATION
 # ==========================================
