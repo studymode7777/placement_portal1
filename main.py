@@ -173,9 +173,8 @@ if choice == "Student Registration":
                 pdf_bytes = pdf_buffer.getvalue()
                 st.success("Resume Generated Successfully!")
                 st.download_button(label="📥 Download Resume (PDF)", data=pdf_bytes, file_name=f"{r_name.replace(' ', '_')}_Resume.pdf", mime="application/pdf")
-
 # ==========================================
-# 2. STUDENT LOGIN (WITH PROFILE BOOST FEATURE)
+# 2. STUDENT LOGIN (WITH GHOST SESSION FIX & PROFILE BOOST)
 # ==========================================
 elif choice == "Student Login":
     st.subheader("🔐 Student Login")
@@ -201,77 +200,90 @@ elif choice == "Student Login":
     else:
         # Refresh student data from DB to get accurate Boost status
         df_students = safe_read_csv("database.csv")
-        student_email = st.session_state.current_student["Email"]
-        student = df_students[df_students["Email"] == student_email].iloc[0].to_dict()
+        student_email = str(st.session_state.current_student["Email"]).strip().lower()
         
-        st.success(f"✅ Welcome back, {student['Name']}!")
+        # Safely check if the student still exists in the database
+        clean_db_emails = df_students["Email"].astype(str).str.strip().str.lower()
+        student_match = df_students[clean_db_emails == student_email]
         
-        with st.container(border=True):
-            col1, col2 = st.columns(2)
-            col1.write(f"**Branch:** {student['Branch']}")
-            col1.write(f"**CGPA:** {student['CGPA']}")
-            col2.write(f"**Email:** {student['Email']}")
-        
-# --- NEW FEATURE: PROFILE BOOST ---
-        st.markdown("### 🚀 Premium Features")
-        
-        # Ensure we are treating the value as a string to prevent errors
-        is_boosted = str(student.get("Boosted")).strip()
-        
-        if is_boosted == "True":
-            st.success("🔥 Your profile is BOOSTED! Companies will see your applications at the top of their lists.")
-        else:
-            st.info("Want to stand out? Boost your profile to appear at the top of recruiter pipelines!")
-            
-            if st.button("💳 Pay ₹499 to Boost Profile"):
-                # Create a temporary container so Streamlit is FORCED to render it immediately
-                status_box = st.empty() 
-                
-                with status_box.container():
-                    with st.spinner("Processing secure payment..."):
-                        time.sleep(1.5) # Simulate payment delay
-                        
-                        # Update DB
-                        target_email = str(student["Email"]).strip().lower()
-                        df_students["Email_clean"] = df_students["Email"].astype(str).str.strip().str.lower()
-                        df_students.loc[df_students["Email_clean"] == target_email, "Boosted"] = "True"
-                        df_students = df_students.drop(columns=["Email_clean"])
-                        df_students.to_csv("database.csv", index=False)
-                        
-                        # Tell the active session state we are boosted instantly
-                        st.session_state.current_student["Boosted"] = "True"
-                
-                # Show success inside the container
-                status_box.success("🎉 Payment Successful! Your profile is now prioritized.")
-                time.sleep(1.5) # Now you will actually see it!
-                st.rerun()
-                st.divider()
-        st.markdown("### 📋 My Job Applications")
-        df_apps = safe_read_csv("applications.csv")
-        
-        if not df_apps.empty:
-            my_apps = df_apps[df_apps["Student_Email"].str.lower() == student["Email"].lower()]
-            if not my_apps.empty:
-                for idx, app in my_apps.iterrows():
-                    status = app['Status']
-                    if status == "Accepted":
-                        st.success(f"🎉 **{app['Company_Name']}** - Status: **{status}**")
-                    elif status == "Rejected":
-                        st.error(f"❌ **{app['Company_Name']}** - Status: **{status}**")
-                    elif status == "Shortlisted":
-                        st.warning(f"⭐ **{app['Company_Name']}** - Status: **{status}**")
-                    else:
-                        st.info(f"⏳ **{app['Company_Name']}** - Status: **{status}**")
-            else:
-                st.write("You haven't applied to any jobs yet. Check the Job Board!")
-        else:
-            st.write("You haven't applied to any jobs yet. Check the Job Board!")
-            
-        st.markdown("---")
-        if st.button("Logout", type="primary"):
+        if student_match.empty:
+            # If the database was wiped while they were logged in, gracefully log them out
             st.session_state.student_logged_in = False
             st.session_state.current_student = None
+            st.warning("⚠️ Session expired or database was reset. Please log in again.")
+            time.sleep(1.5)
             st.rerun()
+        else:
+            # Safe to extract the student data
+            student = student_match.iloc[0].to_dict()
+            
+            st.success(f"✅ Welcome back, {student['Name']}!")
+            
+            with st.container(border=True):
+                col1, col2 = st.columns(2)
+                col1.write(f"**Branch:** {student['Branch']}")
+                col1.write(f"**CGPA:** {student['CGPA']}")
+                col2.write(f"**Email:** {student['Email']}")
+            
+            # --- NEW FEATURE: PROFILE BOOST ---
+            st.markdown("### 🚀 Premium Features")
+            
+            # Ensure we are treating the value as a string to prevent errors
+            is_boosted = str(student.get("Boosted")).strip()
+            
+            if is_boosted == "True":
+                st.success("🔥 Your profile is BOOSTED! Companies will see your applications at the top of their lists.")
+            else:
+                st.info("Want to stand out? Boost your profile to appear at the top of recruiter pipelines!")
+                
+                if st.button("💳 Pay ₹499 to Boost Profile"):
+                    status_box = st.empty() 
+                    
+                    with status_box.container():
+                        with st.spinner("Processing secure payment..."):
+                            time.sleep(1.5) # Simulate payment delay
+                            
+                            # Update DB
+                            target_email = str(student["Email"]).strip().lower()
+                            df_students["Email_clean"] = df_students["Email"].astype(str).str.strip().str.lower()
+                            df_students.loc[df_students["Email_clean"] == target_email, "Boosted"] = "True"
+                            df_students = df_students.drop(columns=["Email_clean"])
+                            df_students.to_csv("database.csv", index=False)
+                            
+                            st.session_state.current_student["Boosted"] = "True"
+                    
+                    status_box.success("🎉 Payment Successful! Your profile is now prioritized.")
+                    time.sleep(1.5) 
+                    st.rerun()
+                    
+            st.divider()
+            
+            st.markdown("### 📋 My Job Applications")
+            df_apps = safe_read_csv("applications.csv")
+            
+            if not df_apps.empty:
+                my_apps = df_apps[df_apps["Student_Email"].str.lower() == student["Email"].lower()]
+                if not my_apps.empty:
+                    for idx, app in my_apps.iterrows():
+                        status = app['Status']
+                        if status == "Accepted":
+                            st.success(f"🎉 **{app['Company_Name']}** - Status: **{status}**")
+                        elif status == "Rejected":
+                            st.error(f"❌ **{app['Company_Name']}** - Status: **{status}**")
+                        elif status == "Shortlisted":
+                            st.warning(f"⭐ **{app['Company_Name']}** - Status: **{status}**")
+                        else:
+                            st.info(f"⏳ **{app['Company_Name']}** - Status: **{status}**")
+                else:
+                    st.write("You haven't applied to any jobs yet. Check the Job Board!")
+            else:
+                st.write("You haven't applied to any jobs yet. Check the Job Board!")
+                
+            st.markdown("---")
+            if st.button("Logout", type="primary"):
+                st.session_state.student_logged_in = False
+                st.session_state.current_student = None
+                st.rerun()
 # ==========================================
 # 3. COMPANY REGISTRATION
 # ==========================================
