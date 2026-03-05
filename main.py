@@ -245,6 +245,33 @@ elif choice == "Student Login":
                 status_box.success("🎉 Payment Successful! Your profile is now prioritized.")
                 time.sleep(1.5) # Now you will actually see it!
                 st.rerun()
+                st.divider()
+        st.markdown("### 📋 My Job Applications")
+        df_apps = safe_read_csv("applications.csv")
+        
+        if not df_apps.empty:
+            my_apps = df_apps[df_apps["Student_Email"].str.lower() == student["Email"].lower()]
+            if not my_apps.empty:
+                for idx, app in my_apps.iterrows():
+                    status = app['Status']
+                    if status == "Accepted":
+                        st.success(f"🎉 **{app['Company_Name']}** - Status: **{status}**")
+                    elif status == "Rejected":
+                        st.error(f"❌ **{app['Company_Name']}** - Status: **{status}**")
+                    elif status == "Shortlisted":
+                        st.warning(f"⭐ **{app['Company_Name']}** - Status: **{status}**")
+                    else:
+                        st.info(f"⏳ **{app['Company_Name']}** - Status: **{status}**")
+            else:
+                st.write("You haven't applied to any jobs yet. Check the Job Board!")
+        else:
+            st.write("You haven't applied to any jobs yet. Check the Job Board!")
+            
+        st.markdown("---")
+        if st.button("Logout", type="primary"):
+            st.session_state.student_logged_in = False
+            st.session_state.current_student = None
+            st.rerun()
 # ==========================================
 # 3. COMPANY REGISTRATION
 # ==========================================
