@@ -184,7 +184,7 @@ elif choice == "Student Login":
         email = st.text_input("College Email").strip().lower()
         pwd = st.text_input("Password", type="password").strip()
         
-      if st.button("Login"):
+        if st.button("Login"):
             df_students = safe_read_csv("database.csv")
             if not df_students.empty:
                 # --- THE FIX: Force both columns to be strings first ---
