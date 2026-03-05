@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#1f77b4" # This changes the color of your buttons and active tabs
+backgroundColor = "#ffffff" # Main background
+secondaryBackgroundColor = "#f0f2f6" # Sidebar and expander background
+textColor = "#262730"
+font = "sans serif"
