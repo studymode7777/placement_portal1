@@ -187,7 +187,6 @@ elif choice == "Student Login":
         if st.button("Login"):
             df_students = safe_read_csv("database.csv")
             if not df_students.empty:
-                # --- THE FIX: Force both columns to be strings first ---
                 df_students["Email"] = df_students["Email"].astype(str).str.strip()
                 df_students["Password"] = df_students["Password"].astype(str).str.strip()
                 
@@ -202,23 +201,19 @@ elif choice == "Student Login":
             else:
                 st.error("❌ No students registered yet.")
     else:
-        # Refresh student data from DB to get accurate Boost status
         df_students = safe_read_csv("database.csv")
         student_email = str(st.session_state.current_student["Email"]).strip().lower()
         
-        # Safely check if the student still exists in the database
         clean_db_emails = df_students["Email"].astype(str).str.strip().str.lower()
         student_match = df_students[clean_db_emails == student_email]
         
         if student_match.empty:
-            # If the database was wiped while they were logged in, gracefully log them out
             st.session_state.student_logged_in = False
             st.session_state.current_student = None
             st.warning("⚠️ Session expired or database was reset. Please log in again.")
             time.sleep(1.5)
             st.rerun()
         else:
-            # Safe to extract the student data
             student = student_match.iloc[0].to_dict()
             
             st.success(f"✅ Welcome back, {student['Name']}!")
@@ -232,7 +227,6 @@ elif choice == "Student Login":
             # --- NEW FEATURE: PROFILE BOOST ---
             st.markdown("### 🚀 Premium Features")
             
-            # Ensure we are treating the value as a string to prevent errors
             is_boosted = str(student.get("Boosted")).strip()
             
             if is_boosted == "True":
@@ -245,9 +239,8 @@ elif choice == "Student Login":
                     
                     with status_box.container():
                         with st.spinner("Processing secure payment..."):
-                            time.sleep(1.5) # Simulate payment delay
+                            time.sleep(1.5)
                             
-                            # Update DB
                             target_email = str(student["Email"]).strip().lower()
                             df_students["Email_clean"] = df_students["Email"].astype(str).str.strip().str.lower()
                             df_students.loc[df_students["Email_clean"] == target_email, "Boosted"] = "True"
@@ -266,7 +259,10 @@ elif choice == "Student Login":
             df_apps = safe_read_csv("applications.csv")
             
             if not df_apps.empty:
-                my_apps = df_apps[df_apps["Student_Email"].str.lower() == student["Email"].lower()]
+                # --- BULLETPROOF FIX: Force Student_Email to be string before searching ---
+                df_apps["Student_Email"] = df_apps["Student_Email"].astype(str).str.strip()
+                my_apps = df_apps[df_apps["Student_Email"].str.lower() == str(student["Email"]).lower()]
+                
                 if not my_apps.empty:
                     for idx, app in my_apps.iterrows():
                         status = app['Status']
@@ -330,7 +326,10 @@ elif choice == "Company Login":
         if st.button("Login"):
             df_comps = safe_read_csv("companies.csv")
             if not df_comps.empty:
+                # --- BULLETPROOF FIX: Force Email and Password to be strings ---
+                df_comps["Email"] = df_comps["Email"].astype(str).str.strip()
                 df_comps["Password"] = df_comps["Password"].astype(str).str.strip()
+                
                 match = df_comps[(df_comps["Email"].str.lower() == email) & (df_comps["Password"] == pwd)]
                 
                 if not match.empty:
@@ -358,14 +357,11 @@ elif choice == "Company Login":
             my_apps = df_apps[df_apps["Company_Name"] == company_name]
             
             if not my_apps.empty:
-                # Merge applications with student database to easily sort and filter
                 merged_data = pd.merge(my_apps, df_students, left_on="Student_Email", right_on="Email")
-                # SORTING: Ensure Boosted=="True" comes first!
                 merged_data = merged_data.sort_values(by="Boosted", ascending=False)
                 
                 col_pending, col_shortlist = st.columns(2)
                 
-                # --- LEFT COLUMN: NEW APPLICATIONS ---
                 with col_pending:
                     st.markdown("#### 🆕 Pending Review")
                     pending_apps = merged_data[merged_data["Status"] == "Pending"]
@@ -390,7 +386,6 @@ elif choice == "Company Login":
                     else:
                         st.info("No new pending applications.")
 
-                # --- RIGHT COLUMN: SHORTLISTED ---
                 with col_shortlist:
                     st.markdown("#### ⭐ Shortlisted")
                     shortlisted_apps = merged_data[merged_data["Status"] == "Shortlisted"]
@@ -412,7 +407,6 @@ elif choice == "Company Login":
                     else:
                         st.info("No candidates shortlisted yet.")
                 
-                # --- BOTTOM: PROCESSED HISTORY ---
                 st.divider()
                 st.markdown("#### 🗄️ Processed Candidates")
                 processed_apps = merged_data[merged_data["Status"].isin(["Accepted", "Rejected"])]
@@ -444,14 +438,11 @@ elif choice == "Job Board":
     df_comps = safe_read_csv("companies.csv")
     
     if not df_comps.empty:
-        # --- NEW FEATURE: SMART FILTERS ---
         with st.expander("🔍 Filter & Search Jobs", expanded=True):
             search_query = st.text_input("Search by Company Name, Role, or Location").lower()
             
-        # Apply the filter logic
         display_df = df_comps.copy()
         if search_query:
-            # Check if the search query is in the Company, Address, or Criteria column
             mask = (
                 display_df['Company'].astype(str).str.lower().str.contains(search_query) |
                 display_df['Address'].astype(str).str.lower().str.contains(search_query) |
@@ -459,7 +450,6 @@ elif choice == "Job Board":
             )
             display_df = display_df[mask]
 
-        # Display the filtered jobs
         if not display_df.empty:
             for idx, row in display_df.iterrows():
                 with st.container(border=True):
@@ -474,7 +464,7 @@ elif choice == "Job Board":
                         df_apps = safe_read_csv("applications.csv")
                         already_applied = False
                         if not df_apps.empty:
-                            already_applied = not df_apps[(df_apps["Student_Email"] == student_email) & (df_apps["Company_Name"] == company_name)].empty
+                            already_applied = not df_apps[(df_apps["Student_Email"].astype(str) == str(student_email)) & (df_apps["Company_Name"].astype(str) == str(company_name))].empty
                         
                         if already_applied:
                             st.success("✅ Application Submitted")
