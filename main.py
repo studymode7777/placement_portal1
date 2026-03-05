@@ -28,7 +28,6 @@ def init_db():
         pd.DataFrame(columns=["Company", "Email", "Address", "Password", "Package", "Criteria"]).to_csv("companies.csv", index=False)
     if not os.path.exists("allocations.csv"):
         pd.DataFrame(columns=["Student_Email", "Company", "Package", "Date"]).to_csv("allocations.csv", index=False)
-    # UPDATED: Added 'Status' column to track Accept/Reject
     if not os.path.exists("applications.csv"):
         pd.DataFrame(columns=["Student_Email", "Company_Name", "Status"]).to_csv("applications.csv", index=False)
 
@@ -37,9 +36,14 @@ init_db() # Run on startup
 def safe_read_csv(path):
     try:
         df = pd.read_csv(path, on_bad_lines='skip')
+        
+        # --- ROBUST FIX: Automatically add Status column to old application files ---
+        if path == "applications.csv" and "Status" not in df.columns:
+            df["Status"] = "Pending"
+            
         return df.fillna("")
-    except Exception as err:
-        st.error(f"Error loading {path}: {err}")
+    except Exception:
+        # Return empty dataframe if file is completely empty or corrupted
         return pd.DataFrame()
 
 def append_csv(path, row_dict, cols_order):
@@ -61,7 +65,6 @@ def append_csv(path, row_dict, cols_order):
     
     df.to_csv(path, index=False)
 
-# NEW HELPER: Update Application Status
 def update_app_status(student_email, company_name, new_status):
     df_apps = safe_read_csv("applications.csv")
     if not df_apps.empty:
@@ -173,7 +176,7 @@ if choice == "Student Registration":
                 st.download_button(label="📥 Download Resume (PDF)", data=pdf_bytes, file_name=f"{r_name.replace(' ', '_')}_Resume.pdf", mime="application/pdf")
 
 # ==========================================
-# 2. STUDENT LOGIN (UPDATED TO SHOW APPLICATION STATUS)
+# 2. STUDENT LOGIN
 # ==========================================
 elif choice == "Student Login":
     st.subheader("🔐 Student Login")
@@ -214,11 +217,12 @@ elif choice == "Student Login":
             if not my_apps.empty:
                 for idx, app in my_apps.iterrows():
                     status = app['Status']
-                    # Color code the status
                     if status == "Accepted":
                         st.success(f"🎉 **{app['Company_Name']}** - Status: **{status}**")
                     elif status == "Rejected":
                         st.error(f"❌ **{app['Company_Name']}** - Status: **{status}**")
+                    elif status == "Shortlisted":
+                        st.warning(f"⭐ **{app['Company_Name']}** - Status: **{status}**")
                     else:
                         st.info(f"⏳ **{app['Company_Name']}** - Status: **{status}**")
             else:
@@ -259,7 +263,7 @@ elif choice == "Company Registration":
                     st.success(f"Job drive for {company_name} posted successfully!")
 
 # ==========================================
-# 4. COMPANY LOGIN (UPDATED FOR ACCEPT/REJECT)
+# 4. COMPANY LOGIN (SHORTLIST PIPELINE)
 # ==========================================
 elif choice == "Company Login":
     st.subheader("🏢 Company Dashboard")
@@ -291,7 +295,7 @@ elif choice == "Company Login":
             st.write(f"**Active Posting Package:** {comp['Package']}")
             st.write(f"**Criteria:** {comp['Criteria']}")
         
-        st.markdown("### 📥 Manage Candidates")
+        st.markdown("### 📥 Candidate Pipeline")
         df_students = safe_read_csv("database.csv")
         df_apps = safe_read_csv("applications.csv")
         
@@ -299,31 +303,79 @@ elif choice == "Company Login":
             my_apps = df_apps[df_apps["Company_Name"] == company_name]
             
             if not my_apps.empty:
-                for idx, app_row in my_apps.iterrows():
-                    student_email = app_row["Student_Email"]
-                    status = app_row["Status"]
+                col_pending, col_shortlist = st.columns(2)
+                
+                # --- LEFT COLUMN: NEW APPLICATIONS ---
+                with col_pending:
+                    st.markdown("#### 🆕 Pending Review")
+                    pending_apps = my_apps[my_apps["Status"] == "Pending"]
                     
-                    # Get student details
-                    student_match = df_students[df_students["Email"] == student_email]
-                    if not student_match.empty:
-                        student = student_match.iloc[0]
-                        
-                        with st.expander(f"{student['Name']} ({student['Branch']}, CGPA: {student['CGPA']}) - Status: {status}"):
-                            st.write(f"**Email:** {student_email}")
+                    if not pending_apps.empty:
+                        for idx, app_row in pending_apps.iterrows():
+                            student_email = app_row["Student_Email"]
+                            student_match = df_students[df_students["Email"] == student_email]
                             
-                            # Only show buttons if the application is still pending
-                            if status == "Pending":
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    if st.button("✅ Accept Candidate", key=f"accept_{idx}"):
+                            if not student_match.empty:
+                                student = student_match.iloc[0]
+                                with st.container(border=True):
+                                    st.write(f"**{student['Name']}**")
+                                    st.write(f"🎓 {student['Branch']} | CGPA: {student['CGPA']}")
+                                    
+                                    c1, c2, c3 = st.columns(3)
+                                    if c1.button("⭐ Short", key=f"shortlist_{idx}"):
+                                        update_app_status(student_email, company_name, "Shortlisted")
+                                        st.rerun()
+                                    if c2.button("✅ Acc", key=f"acc_p_{idx}"):
                                         update_app_status(student_email, company_name, "Accepted")
                                         st.rerun()
-                                with col2:
-                                    if st.button("❌ Reject Candidate", key=f"reject_{idx}"):
+                                    if c3.button("❌ Rej", key=f"rej_p_{idx}"):
                                         update_app_status(student_email, company_name, "Rejected")
                                         st.rerun()
-                            else:
-                                st.write(f"*You have already **{status}** this candidate.*")
+                    else:
+                        st.info("No new pending applications.")
+
+                # --- RIGHT COLUMN: SHORTLISTED ---
+                with col_shortlist:
+                    st.markdown("#### ⭐ Shortlisted")
+                    shortlisted_apps = my_apps[my_apps["Status"] == "Shortlisted"]
+                    
+                    if not shortlisted_apps.empty:
+                        for idx, app_row in shortlisted_apps.iterrows():
+                            student_email = app_row["Student_Email"]
+                            student_match = df_students[df_students["Email"] == student_email]
+                            
+                            if not student_match.empty:
+                                student = student_match.iloc[0]
+                                with st.container(border=True):
+                                    st.write(f"**{student['Name']}**")
+                                    st.write(f"🎓 {student['Branch']} | CGPA: {student['CGPA']}")
+                                    
+                                    c1, c2 = st.columns(2)
+                                    if c1.button("✅ Accept", key=f"acc_s_{idx}"):
+                                        update_app_status(student_email, company_name, "Accepted")
+                                        st.rerun()
+                                    if c2.button("❌ Reject", key=f"rej_s_{idx}"):
+                                        update_app_status(student_email, company_name, "Rejected")
+                                        st.rerun()
+                    else:
+                        st.info("No candidates shortlisted yet.")
+                
+                # --- BOTTOM: PROCESSED HISTORY ---
+                st.divider()
+                st.markdown("#### 🗄️ Processed Candidates")
+                processed_apps = my_apps[my_apps["Status"].isin(["Accepted", "Rejected"])]
+                
+                if not processed_apps.empty:
+                    for idx, app_row in processed_apps.iterrows():
+                        student_email = app_row["Student_Email"]
+                        student_match = df_students[df_students["Email"] == student_email]
+                        if not student_match.empty:
+                            student = student_match.iloc[0]
+                            status_icon = "✅" if app_row["Status"] == "Accepted" else "❌"
+                            st.write(f"{status_icon} **{student['Name']}** - {app_row['Status']}")
+                else:
+                    st.write("No candidates have been accepted or rejected yet.")
+
             else:
                 st.info("No applications received yet.")
         else:
@@ -362,7 +414,6 @@ elif choice == "Job Board":
                         st.success("✅ Application Submitted")
                     else:
                         if st.button(f"Apply to {company_name}", key=f"apply_{company_name}"):
-                            # UPDATED: Set initial status to "Pending"
                             new_app = {"Student_Email": student_email, "Company_Name": company_name, "Status": "Pending"}
                             append_csv("applications.csv", new_app, ["Student_Email", "Company_Name", "Status"])
                             st.success(f"Successfully applied to {company_name}!")
@@ -373,7 +424,7 @@ elif choice == "Job Board":
         st.info("No companies have posted job drives yet.")
 
 # ==========================================
-# 6. ADMIN DASHBOARD (UPDATED FOR PASSWORD RECOVERY)
+# 6. ADMIN DASHBOARD (CHARTS & RECOVERY)
 # ==========================================
 elif choice == "Admin Dashboard":
     st.subheader("⚙️ Admin Access & Recovery")
@@ -384,13 +435,36 @@ elif choice == "Admin Dashboard":
         df_students = safe_read_csv("database.csv")
         df_comps = safe_read_csv("companies.csv")
         df_allocs = safe_read_csv("allocations.csv")
+        df_apps = safe_read_csv("applications.csv")
         
         st.write("### 📊 Portal Analytics")
         c1, c2, c3 = st.columns(3)
         c1.metric("Registered Students", len(df_students) if not df_students.empty else 0)
         c2.metric("Partner Companies", len(df_comps) if not df_comps.empty else 0)
-        c3.metric("Successful Placements", len(df_allocs) if not df_allocs.empty else 0)
+        c3.metric("Total Applications", len(df_apps) if not df_apps.empty else 0)
         
+        st.divider()
+        
+        # --- VISUAL ANALYTICS CHARTS ---
+        st.write("### 📈 Visual Insights")
+        chart_col1, chart_col2 = st.columns(2)
+        
+        with chart_col1:
+            st.write("**Students by Branch**")
+            if not df_students.empty and "Branch" in df_students.columns:
+                branch_counts = df_students["Branch"].value_counts()
+                st.bar_chart(branch_counts, color="#1f77b4")
+            else:
+                st.info("Not enough student data to generate chart.")
+                
+        with chart_col2:
+            st.write("**Applications per Company**")
+            if not df_apps.empty and "Company_Name" in df_apps.columns:
+                app_counts = df_apps["Company_Name"].value_counts()
+                st.bar_chart(app_counts, color="#ff7f0e")
+            else:
+                st.info("Not enough application data to generate chart.")
+                
         st.divider()
         st.warning("🔒 **Admin View Active:** Account passwords are now visible for recovery purposes.")
         
@@ -398,14 +472,12 @@ elif choice == "Admin Dashboard":
         
         with t1:
             if not df_students.empty:
-                # UPDATED: Removed the .drop() function so passwords are visible
                 st.dataframe(df_students, use_container_width=True)
             else:
                 st.info("No students registered.")
             
         with t2:
             if not df_comps.empty:
-                 # UPDATED: Removed the .drop() function so passwords are visible
                 st.dataframe(df_comps, use_container_width=True)
             else:
                 st.info("No companies registered.")
