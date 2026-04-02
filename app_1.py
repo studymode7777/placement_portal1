@@ -151,11 +151,52 @@ def init_db():
 
 init_db()
 
+# ==========================================
+# MIGRATION: Add missing columns to existing CSV files
+# ==========================================
+def migrate_csv_columns():
+    """Add any missing columns to existing CSV files."""
+    required_columns = {
+        "database.csv": ["Verified","OTP","OTPExpiry"],
+        "companies.csv": ["CustomQuestions"],
+        "applications.csv": ["Answers","TestScore"],
+        "allocations.csv": ["Rating"],
+        "interviews.csv": ["Booked_By","Booking_Date"],
+        "skill_tests.csv": ["Passing_Score"],
+        "test_results.csv": ["Passed"]
+    }
+    for fname, cols in required_columns.items():
+        if os.path.exists(fname):
+            df = pd.read_csv(fname)
+            for col in cols:
+                if col not in df.columns:
+                    df[col] = ""  # Add empty column
+            df.to_csv(fname, index=False)
+
+migrate_csv_columns()  # Run migration on startup
+
 def safe_read_csv(path):
     try:
         df = pd.read_csv(path, on_bad_lines='skip')
+        # Ensure required columns exist for each CSV type
+        required_columns = {
+            "database.csv": ["Name","Email","Password","CGPA","Branch","Boosted","Verified","OTP","OTPExpiry"],
+            "companies.csv": ["Company","Email","Address","Password","Package","MinCGPA","Branches","CustomQuestions"],
+            "applications.csv": ["Student_Email","Company_Name","Status","Answers","TestScore"],
+            "allocations.csv": ["Student_Email","Company","Package","Date","Rating"],
+            "documents.csv": ["Student_Email","Document_Name","File_Path","Upload_Date"],
+            "interviews.csv": ["Company","Slot_Time","Duration","Mode","Booked_By","Booking_Date"],
+            "ratings.csv": ["Student_Email","Company","Rating","Review","Date"],
+            "audit_logs.csv": ["Admin_Email","Action","Timestamp"],
+            "skill_tests.csv": ["Company","Job_Title","Questions","Answers","Passing_Score"],
+            "test_results.csv": ["Student_Email","Company","Score","Passed","Date"]
+        }
+        if path in required_columns:
+            for col in required_columns[path]:
+                if col not in df.columns:
+                    df[col] = ""
         return df.fillna("")
-    except:
+    except Exception:
         return pd.DataFrame()
 
 def append_csv(path, row_dict):
@@ -225,6 +266,8 @@ if "student_logged_in" not in st.session_state:
     st.session_state.otp_verified = False
     st.session_state.pending_otp_email = None
     st.session_state.reset_email = None
+    st.session_state.current_test = None
+    st.session_state.test_company = None
 
 # ==========================================
 # NAVIGATION
