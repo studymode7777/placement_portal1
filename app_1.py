@@ -636,7 +636,7 @@ elif choice == "Job Board":
 elif choice == "Admin Dashboard":
     st.subheader("⚙️ Admin Access")
 
-    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+    ADMIN_PASSWORD = "admin123"
     if not ADMIN_PASSWORD:
         st.warning("⚠️ Admin password not set. Set the `ADMIN_PASSWORD` environment variable to enable access.")
 
