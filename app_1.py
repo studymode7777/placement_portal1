@@ -5,6 +5,7 @@ import re
 import time
 from io import BytesIO
 from werkzeug.security import generate_password_hash, check_password_hash
+import shutil
 
 try:
     from reportlab.lib.pagesizes import letter
@@ -62,6 +63,12 @@ def init_db():
         pd.DataFrame(columns=["Student_Email", "Company", "Package", "Date"]).to_csv("allocations.csv", index=False)
     if not os.path.exists("applications.csv"):
         pd.DataFrame(columns=["Student_Email", "Company_Name", "Status"]).to_csv("applications.csv", index=False)
+    # NEW: documents table
+    if not os.path.exists("documents.csv"):
+        pd.DataFrame(columns=["Student_Email", "Document_Name", "File_Path", "Upload_Date"]).to_csv("documents.csv", index=False)
+
+    # Create uploads folder if not exists
+    os.makedirs("uploads", exist_ok=True)
 
 init_db()
 
@@ -86,15 +93,18 @@ def safe_read_csv(path):
         return pd.DataFrame()
 
 
-def append_csv(path, row_dict, cols_order):
+def append_csv(path, row_dict, cols_order=None):
+    """Append row to CSV. If cols_order is None, preserve all columns."""
     df = safe_read_csv(path)
     new_row = pd.DataFrame([row_dict])
     df = pd.concat([df, new_row], ignore_index=True) if not df.empty else new_row
     df = df.fillna("")
-    for col in cols_order:
-        if col not in df.columns:
-            df[col] = ""
-    df = df[cols_order]
+    if cols_order:
+        # Ensure all cols_order exist
+        for col in cols_order:
+            if col not in df.columns:
+                df[col] = ""
+        df = df[cols_order]
     df.to_csv(path, index=False)
 
 
@@ -104,6 +114,40 @@ def update_app_status(student_email, company_name, new_status):
         mask = (df_apps["Student_Email"] == student_email) & (df_apps["Company_Name"] == company_name)
         df_apps.loc[mask, "Status"] = new_status
         df_apps.to_csv("applications.csv", index=False)
+
+
+# NEW: Document management functions
+def save_uploaded_file(uploaded_file, student_email):
+    """Save uploaded file to uploads folder and return file path."""
+    # Create safe filename: email_docname_timestamp.ext
+    base_name = os.path.splitext(uploaded_file.name)[0]
+    ext = os.path.splitext(uploaded_file.name)[1]
+    timestamp = int(time.time())
+    safe_email = student_email.replace('@', '_at_').replace('.', '_')
+    safe_filename = f"{safe_email}_{base_name}_{timestamp}{ext}"
+    # Remove any problematic characters
+    safe_filename = re.sub(r'[^\w\-_.]', '_', safe_filename)
+    file_path = os.path.join("uploads", safe_filename)
+    with open(file_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    return file_path
+
+def get_student_documents(student_email):
+    """Return DataFrame of documents for given student."""
+    df_docs = safe_read_csv("documents.csv")
+    if df_docs.empty:
+        return pd.DataFrame()
+    df_docs["Student_Email"] = df_docs["Student_Email"].astype(str).str.strip().str.lower()
+    return df_docs[df_docs["Student_Email"] == student_email.lower()]
+
+def delete_document(file_path, student_email, doc_name):
+    """Remove document file and database entry."""
+    if os.path.exists(file_path):
+        os.remove(file_path)
+    df_docs = safe_read_csv("documents.csv")
+    df_docs["Student_Email"] = df_docs["Student_Email"].astype(str).str.strip().str.lower()
+    df_docs = df_docs[~((df_docs["Student_Email"] == student_email.lower()) & (df_docs["Document_Name"] == doc_name))]
+    df_docs.to_csv("documents.csv", index=False)
 
 
 # ==========================================
@@ -344,6 +388,54 @@ elif choice == "Student Login":
 
             st.divider()
 
+            # ========== NEW: DOCUMENT UPLOAD SECTION ==========
+            st.markdown("### 📄 My Documents (Certificates, Resume, etc.)")
+            with st.expander("➕ Upload New Document"):
+                uploaded_file = st.file_uploader("Choose a file (PDF, DOCX, JPG, PNG)", type=['pdf', 'docx', 'jpg', 'jpeg', 'png'])
+                doc_name = st.text_input("Document Title (e.g., 10th Marksheet, Internship Letter)")
+                if uploaded_file and doc_name:
+                    if st.button("Upload Document"):
+                        # Save file
+                        file_path = save_uploaded_file(uploaded_file, student_email)
+                        # Record in CSV
+                        row = {
+                            "Student_Email": student_email,
+                            "Document_Name": doc_name,
+                            "File_Path": file_path,
+                            "Upload_Date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                        append_csv("documents.csv", row, None)  # preserve all cols
+                        st.success(f"✅ '{doc_name}' uploaded successfully!")
+                        st.rerun()
+
+            # Display existing documents
+            docs_df = get_student_documents(student_email)
+            if not docs_df.empty:
+                st.write("**Your uploaded documents:**")
+                for idx, row in docs_df.iterrows():
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.write(f"📎 **{row['Document_Name']}** (Uploaded: {row['Upload_Date']})")
+                    with col2:
+                        # Provide download button
+                        with open(row['File_Path'], "rb") as f:
+                            file_bytes = f.read()
+                        st.download_button(
+                            label="📥 Download",
+                            data=file_bytes,
+                            file_name=os.path.basename(row['File_Path']),
+                            key=f"download_{idx}"
+                        )
+                        # Delete button
+                        if st.button("🗑️ Delete", key=f"del_{idx}"):
+                            delete_document(row['File_Path'], student_email, row['Document_Name'])
+                            st.success(f"Deleted '{row['Document_Name']}'")
+                            st.rerun()
+            else:
+                st.info("No documents uploaded yet. Use the expander above to add certificates or resumes.")
+            st.divider()
+            # ========== END DOCUMENT SECTION ==========
+
             # --- MY APPLICATIONS ---
             st.markdown("### 📋 My Job Applications")
             df_apps = safe_read_csv("applications.csv")
@@ -477,6 +569,7 @@ elif choice == "Company Login":
         st.markdown("### 📥 Candidate Pipeline")
         df_students = safe_read_csv("database.csv")
         df_apps = safe_read_csv("applications.csv")
+        df_docs = safe_read_csv("documents.csv")  # NEW
 
         if not df_apps.empty and not df_students.empty:
             my_apps = df_apps[df_apps["Company_Name"] == company_name]
@@ -497,6 +590,26 @@ elif choice == "Company Login":
                             with st.container(border=True):
                                 st.write(f"**{row['Name']}** {boost_badge}")
                                 st.write(f"🎓 {row['Branch']} | CGPA: {row['CGPA']}")
+                                
+                                # NEW: Show student documents
+                                student_docs = df_docs[df_docs["Student_Email"].astype(str).str.lower() == row["Email"].lower()]
+                                if not student_docs.empty:
+                                    with st.expander("📎 View Student Documents"):
+                                        for _, doc in student_docs.iterrows():
+                                            if os.path.exists(doc["File_Path"]):
+                                                with open(doc["File_Path"], "rb") as f:
+                                                    doc_bytes = f.read()
+                                                st.download_button(
+                                                    label=f"📄 {doc['Document_Name']}",
+                                                    data=doc_bytes,
+                                                    file_name=os.path.basename(doc["File_Path"]),
+                                                    key=f"pending_doc_{idx}_{doc['Document_Name']}"
+                                                )
+                                            else:
+                                                st.warning(f"{doc['Document_Name']} (file missing)")
+                                else:
+                                    st.caption("No documents uploaded.")
+                                
                                 c1, c2, c3 = st.columns(3)
                                 if c1.button("⭐ Short", key=f"shortlist_{idx}"):
                                     update_app_status(row["Email"], company_name, "Shortlisted")
@@ -520,6 +633,26 @@ elif choice == "Company Login":
                             with st.container(border=True):
                                 st.write(f"**{row['Name']}** {boost_badge}")
                                 st.write(f"🎓 {row['Branch']} | CGPA: {row['CGPA']}")
+                                
+                                # Show documents again
+                                student_docs = df_docs[df_docs["Student_Email"].astype(str).str.lower() == row["Email"].lower()]
+                                if not student_docs.empty:
+                                    with st.expander("📎 View Student Documents"):
+                                        for _, doc in student_docs.iterrows():
+                                            if os.path.exists(doc["File_Path"]):
+                                                with open(doc["File_Path"], "rb") as f:
+                                                    doc_bytes = f.read()
+                                                st.download_button(
+                                                    label=f"📄 {doc['Document_Name']}",
+                                                    data=doc_bytes,
+                                                    file_name=os.path.basename(doc["File_Path"]),
+                                                    key=f"shortlist_doc_{idx}_{doc['Document_Name']}"
+                                                )
+                                            else:
+                                                st.warning(f"{doc['Document_Name']} (file missing)")
+                                else:
+                                    st.caption("No documents uploaded.")
+                                
                                 c1, c2 = st.columns(2)
                                 if c1.button("✅ Accept", key=f"acc_s_{idx}"):
                                     update_app_status(row["Email"], company_name, "Accepted")
@@ -636,7 +769,7 @@ elif choice == "Job Board":
 elif choice == "Admin Dashboard":
     st.subheader("⚙️ Admin Access")
 
-    ADMIN_PASSWORD = "admin123"
+    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
     if not ADMIN_PASSWORD:
         st.warning("⚠️ Admin password not set. Set the `ADMIN_PASSWORD` environment variable to enable access.")
 
@@ -647,6 +780,7 @@ elif choice == "Admin Dashboard":
         df_comps = safe_read_csv("companies.csv")
         df_allocs = safe_read_csv("allocations.csv")
         df_apps = safe_read_csv("applications.csv")
+        df_docs = safe_read_csv("documents.csv")  # NEW
 
         # --- ANALYTICS ---
         st.write("### 📊 Portal Analytics")
@@ -679,7 +813,6 @@ elif choice == "Admin Dashboard":
         with t1:
             st.write("### Registered Students")
             if not df_students.empty:
-                # Never show passwords
                 display_students = df_students.drop(columns=["Password"], errors="ignore")
                 st.dataframe(display_students, use_container_width=True)
             else:
@@ -718,11 +851,15 @@ elif choice == "Admin Dashboard":
             wipe_confirm = st.text_input('Type "DELETE" to enable the wipe button', key="wipe_students_input")
             if wipe_confirm == "DELETE":
                 if st.button("🗑️ Wipe All Student Data & Applications", type="primary"):
-                    for f in ["database.csv", "applications.csv"]:
+                    for f in ["database.csv", "applications.csv", "documents.csv"]:  # include documents
                         if os.path.exists(f):
                             os.remove(f)
+                    # Also delete all uploaded files
+                    if os.path.exists("uploads"):
+                        shutil.rmtree("uploads")
+                        os.makedirs("uploads", exist_ok=True)
                     init_db()
-                    st.success("Student database and applications cleared.")
+                    st.success("Student database, applications, and documents cleared.")
                     st.rerun()
             else:
                 st.button("🗑️ Wipe All Student Data & Applications", disabled=True)
