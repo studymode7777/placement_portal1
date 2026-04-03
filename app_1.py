@@ -3,13 +3,10 @@ import pandas as pd
 import os
 import re
 import time
-import uuid
-import smtplib
-import random
 import json
 import shutil
 from io import BytesIO
-from datetime import datetime, timedelta
+from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # Optional imports
@@ -48,42 +45,16 @@ st.set_page_config(page_title="College Placement Portal", layout="wide", page_ic
 # ==========================================
 try:
     ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "admin123")
-    EMAIL_HOST = st.secrets.get("EMAIL_HOST", "smtp.gmail.com")
-    EMAIL_PORT = st.secrets.get("EMAIL_PORT", 587)
-    EMAIL_USER = st.secrets.get("EMAIL_USER", "")
-    EMAIL_PASS = st.secrets.get("EMAIL_PASS", "")
     STRIPE_PUBLIC_KEY = st.secrets.get("STRIPE_PUBLIC_KEY", "")
     STRIPE_SECRET_KEY = st.secrets.get("STRIPE_SECRET_KEY", "")
     if STRIPE_SECRET_KEY:
         stripe.api_key = STRIPE_SECRET_KEY
 except:
     ADMIN_PASSWORD = "admin123"
-    EMAIL_USER = ""
-    EMAIL_PASS = ""
 
 # ==========================================
 # HELPER FUNCTIONS
 # ==========================================
-
-def send_email(to_email, subject, body):
-    """Send email via SMTP (returns True if successful)."""
-    if not EMAIL_USER or not EMAIL_PASS:
-        # Silent fail – just log in console
-        print(f"Email not sent: {subject} to {to_email}")
-        return False
-    try:
-        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
-            server.starttls()
-            server.login(EMAIL_USER, EMAIL_PASS)
-            message = f"Subject: {subject}\n\n{body}"
-            server.sendmail(EMAIL_USER, to_email, message)
-        return True
-    except Exception as e:
-        print(f"Email error: {e}")
-        return False
-
-def generate_otp():
-    return str(random.randint(100000, 999999))
 
 def validate_password(password: str) -> tuple:
     errors = []
@@ -103,12 +74,10 @@ def is_valid_email(email: str) -> bool:
     return bool(re.match(r"^[\w.+-]+@[\w-]+\.[a-z]{2,}$", email, re.IGNORECASE))
 
 def log_admin_action(action):
-    """Log admin actions to audit_logs.csv."""
     row = {"Admin_Email": "admin", "Action": action, "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
     append_csv("audit_logs.csv", row)
 
 def parse_resume(file_bytes, filename):
-    """Extract name and email from PDF/DOCX resume."""
     if not (PDF_AVAILABLE or DOCX_AVAILABLE):
         return None
     text = ""
@@ -133,7 +102,7 @@ def parse_resume(file_bytes, filename):
 
 def init_db():
     files = {
-        "database.csv": ["Name","Email","Password","CGPA","Branch","Boosted","Verified","OTP","OTPExpiry"],
+        "database.csv": ["Name","Email","Password","CGPA","Branch","Boosted","Verified"],
         "companies.csv": ["Company","Email","Address","Password","Package","MinCGPA","Branches","CustomQuestions"],
         "allocations.csv": ["Student_Email","Company","Package","Date","Rating"],
         "applications.csv": ["Student_Email","Company_Name","Status","Answers","TestScore"],
@@ -151,36 +120,24 @@ def init_db():
 
 init_db()
 
-# ==========================================
-# MIGRATION: Add missing columns to existing CSV files
-# ==========================================
-def migrate_csv_columns():
-    """Add any missing columns to existing CSV files."""
-    required_columns = {
-        "database.csv": ["Verified","OTP","OTPExpiry"],
-        "companies.csv": ["CustomQuestions"],
-        "applications.csv": ["Answers","TestScore"],
-        "allocations.csv": ["Rating"],
-        "interviews.csv": ["Booked_By","Booking_Date"],
-        "skill_tests.csv": ["Passing_Score"],
-        "test_results.csv": ["Passed"]
-    }
-    for fname, cols in required_columns.items():
-        if os.path.exists(fname):
-            df = pd.read_csv(fname)
-            for col in cols:
-                if col not in df.columns:
-                    df[col] = ""  # Add empty column
-            df.to_csv(fname, index=False)
+# Migration: ensure Verified column exists and set to True for all existing students
+def migrate_existing_students():
+    if os.path.exists("database.csv"):
+        df = pd.read_csv("database.csv")
+        if "Verified" not in df.columns:
+            df["Verified"] = "True"
+        else:
+            df["Verified"] = df["Verified"].fillna("True")
+            df["Verified"] = df["Verified"].replace("False", "True")  # force all to True
+        df.to_csv("database.csv", index=False)
 
-migrate_csv_columns()  # Run migration on startup
+migrate_existing_students()
 
 def safe_read_csv(path):
     try:
         df = pd.read_csv(path, on_bad_lines='skip')
-        # Ensure required columns exist for each CSV type
         required_columns = {
-            "database.csv": ["Name","Email","Password","CGPA","Branch","Boosted","Verified","OTP","OTPExpiry"],
+            "database.csv": ["Name","Email","Password","CGPA","Branch","Boosted","Verified"],
             "companies.csv": ["Company","Email","Address","Password","Package","MinCGPA","Branches","CustomQuestions"],
             "applications.csv": ["Student_Email","Company_Name","Status","Answers","TestScore"],
             "allocations.csv": ["Student_Email","Company","Package","Date","Rating"],
@@ -246,12 +203,6 @@ def update_app_status(student_email, company_name, new_status):
         mask = (df_apps["Student_Email"] == student_email) & (df_apps["Company_Name"] == company_name)
         df_apps.loc[mask, "Status"] = new_status
         df_apps.to_csv("applications.csv", index=False)
-        # Send email notification
-        df_students = safe_read_csv("database.csv")
-        student = df_students[df_students["Email"] == student_email]
-        if not student.empty:
-            send_email(student_email, f"Application Status Update - {company_name}",
-                       f"Dear {student.iloc[0]['Name']},\n\nYour application for {company_name} has been {new_status}.\n\nBest regards,\nPlacement Cell")
 
 # ==========================================
 # SESSION STATE
@@ -263,9 +214,6 @@ if "student_logged_in" not in st.session_state:
     st.session_state.company_logged_in = False
     st.session_state.current_company = None
     st.session_state.nav_override = None
-    st.session_state.otp_verified = False
-    st.session_state.pending_otp_email = None
-    st.session_state.reset_email = None
     st.session_state.current_test = None
     st.session_state.test_company = None
 
@@ -285,7 +233,7 @@ else:
 choice = st.sidebar.selectbox("Navigation", menu, index=default_idx)
 
 # ==========================================
-# 1. STUDENT REGISTRATION (with OTP and resume parser)
+# 1. STUDENT REGISTRATION (no OTP)
 # ==========================================
 
 if choice == "Student Registration":
@@ -321,99 +269,40 @@ if choice == "Student Registration":
             errors = True
 
         if not errors:
-            # Parse resume if uploaded
-            parsed_data = None
             if resume_file:
-                parsed_data = parse_resume(resume_file.read(), resume_file.name)
-                if parsed_data and parsed_data["name"]:
-                    st.info(f"Parsed Name: {parsed_data['name']}, Email: {parsed_data['email']}")
-                    # Optionally overwrite name/email if fields empty
-                    if not name and parsed_data["name"]:
-                        name = parsed_data["name"]
-                    if not email and parsed_data["email"]:
-                        email = parsed_data["email"]
-
-            otp = generate_otp()
-            expiry = (datetime.now() + timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+                parsed = parse_resume(resume_file.read(), resume_file.name)
+                if parsed and parsed["name"]:
+                    st.info(f"Parsed: {parsed['name']} – {parsed['email']}")
             hashed_pw = generate_password_hash(password)
-            row = {"Name": name, "Email": email, "Password": hashed_pw, "CGPA": cgpa, "Branch": branch,
-                   "Boosted": "False", "Verified": "False", "OTP": otp, "OTPExpiry": expiry}
+            row = {"Name": name, "Email": email, "Password": hashed_pw, "CGPA": cgpa,
+                   "Branch": branch, "Boosted": "False", "Verified": "True"}
             append_csv("database.csv", row)
-            if send_email(email, "Verify your email", f"Your OTP is {otp}. Valid for 10 minutes."):
-                st.success("Registration successful! OTP sent to your email. Please verify below.")
-                st.session_state.pending_otp_email = email
-            else:
-                st.error("Could not send OTP. Please contact admin.")
-
-    # OTP verification
-    if st.session_state.get("pending_otp_email"):
-        st.subheader("Verify Email")
-        otp_input = st.text_input("Enter OTP")
-        if st.button("Verify"):
-            df = safe_read_csv("database.csv")
-            user = df[(df["Email"] == st.session_state.pending_otp_email) & (df["Verified"] == "False")]
-            if not user.empty:
-                stored_otp = str(user.iloc[0]["OTP"])
-                expiry = user.iloc[0]["OTPExpiry"]
-                if otp_input == stored_otp and datetime.now() < datetime.strptime(expiry, "%Y-%m-%d %H:%M:%S"):
-                    update_csv("database.csv", lambda r: r["Email"] == st.session_state.pending_otp_email, {"Verified": "True", "OTP": "", "OTPExpiry": ""})
-                    st.success("Email verified! You can now login.")
-                    st.session_state.pending_otp_email = None
-                else:
-                    st.error("Invalid or expired OTP")
+            st.success("Registration successful! You can now log in.")
 
 # ==========================================
-# 2. STUDENT LOGIN (with forgot password)
+# 2. STUDENT LOGIN (no verification required)
 # ==========================================
 
 elif choice == "Student Login":
     st.subheader("🔐 Student Login")
     if not st.session_state.student_logged_in:
-        tab_login, tab_forgot = st.tabs(["Login", "Forgot Password"])
-        with tab_login:
-            email = st.text_input("Email").strip().lower()
-            pwd = st.text_input("Password", type="password")
-            if st.button("Login"):
-                df = safe_read_csv("database.csv")
-                df["Email_clean"] = df["Email"].str.lower()
-                match = df[df["Email_clean"] == email]
-                if not match.empty:
-                    if match.iloc[0]["Verified"] != "True":
-                        st.error("Please verify your email first.")
-                    elif check_password_hash(match.iloc[0]["Password"], pwd):
-                        st.session_state.student_logged_in = True
-                        st.session_state.current_student = match.iloc[0].to_dict()
-                        st.rerun()
-                    else:
-                        st.error("Invalid credentials")
+        email = st.text_input("Email").strip().lower()
+        pwd = st.text_input("Password", type="password")
+        if st.button("Login"):
+            df = safe_read_csv("database.csv")
+            df["Email_clean"] = df["Email"].str.lower()
+            match = df[df["Email_clean"] == email]
+            if not match.empty:
+                if check_password_hash(match.iloc[0]["Password"], pwd):
+                    st.session_state.student_logged_in = True
+                    st.session_state.current_student = match.iloc[0].to_dict()
+                    st.rerun()
                 else:
-                    st.error("Email not found")
-        with tab_forgot:
-            forgot_email = st.text_input("Registered Email").strip().lower()
-            if st.button("Send Reset OTP"):
-                df = safe_read_csv("database.csv")
-                if forgot_email in df["Email"].str.lower().values:
-                    otp = generate_otp()
-                    expiry = (datetime.now() + timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
-                    update_csv("database.csv", lambda r: r["Email"] == forgot_email, {"OTP": otp, "OTPExpiry": expiry})
-                    send_email(forgot_email, "Password Reset OTP", f"Your OTP is {otp}. Valid 10 minutes.")
-                    st.success("OTP sent. Enter below.")
-                    st.session_state.reset_email = forgot_email
-            if st.session_state.get("reset_email"):
-                otp_input = st.text_input("Enter OTP")
-                new_pwd = st.text_input("New Password", type="password")
-                if st.button("Reset Password"):
-                    df = safe_read_csv("database.csv")
-                    user = df[df["Email"] == st.session_state.reset_email]
-                    if not user.empty and otp_input == str(user.iloc[0]["OTP"]) and datetime.now() < datetime.strptime(user.iloc[0]["OTPExpiry"], "%Y-%m-%d %H:%M:%S"):
-                        hashed = generate_password_hash(new_pwd)
-                        update_csv("database.csv", lambda r: r["Email"] == st.session_state.reset_email, {"Password": hashed, "OTP": "", "OTPExpiry": ""})
-                        st.success("Password reset. Login now.")
-                        st.session_state.reset_email = None
-                    else:
-                        st.error("Invalid OTP")
+                    st.error("Invalid credentials")
+            else:
+                st.error("Email not found")
     else:
-        # STUDENT DASHBOARD (full)
+        # STUDENT DASHBOARD
         student = st.session_state.current_student
         student_email = student["Email"]
         st.success(f"✅ Welcome back, {student['Name']}!")
@@ -424,7 +313,7 @@ elif choice == "Student Login":
             col1.write(f"**CGPA:** {student['CGPA']}")
             col2.write(f"**Email:** {student['Email']}")
 
-        # ---- Profile Boost (with Stripe demo) ----
+        # Profile Boost (Stripe or demo)
         st.markdown("### 🚀 Premium Features")
         if student.get("Boosted") == "True":
             st.success("🔥 Your profile is BOOSTED! Companies see your applications first.")
@@ -432,7 +321,6 @@ elif choice == "Student Login":
             st.info("Boost your profile to appear at the top of recruiter pipelines.")
             if STRIPE_PUBLIC_KEY and STRIPE_SECRET_KEY:
                 if st.button("💳 Pay ₹300 to Boost Profile (Stripe)"):
-                    # Redirect to Stripe Checkout
                     try:
                         checkout_session = stripe.checkout.Session.create(
                             payment_method_types=['card'],
@@ -452,7 +340,6 @@ elif choice == "Student Login":
                     except Exception as e:
                         st.error(f"Stripe error: {e}")
             else:
-                # Fallback demo
                 if st.button("💳 Simulate Boost (Demo)"):
                     update_csv("database.csv", lambda r: r["Email"] == student_email, {"Boosted": "True"})
                     st.session_state.current_student["Boosted"] = "True"
@@ -460,7 +347,7 @@ elif choice == "Student Login":
 
         st.divider()
 
-        # ---- Placement Statistics for Student ----
+        # Placement Statistics for Student
         st.markdown("### 📊 Placement Statistics")
         df_allocs = safe_read_csv("allocations.csv")
         df_students_all = safe_read_csv("database.csv")
@@ -468,7 +355,6 @@ elif choice == "Student Login":
             merged = df_allocs.merge(df_students_all, left_on="Student_Email", right_on="Email")
             branch_data = merged[merged["Branch"] == student["Branch"]]
             if not branch_data.empty:
-                # Extract numeric package
                 pkg_nums = branch_data["Package"].str.extract(r'(\d+\.?\d*)').astype(float)
                 avg_pkg = pkg_nums.mean().iloc[0] if not pkg_nums.empty else 0
                 st.metric(f"Average Package for {student['Branch']}", f"{avg_pkg:.1f} LPA")
@@ -480,7 +366,7 @@ elif choice == "Student Login":
 
         st.divider()
 
-        # ---- Document Upload ----
+        # Document Upload
         st.markdown("### 📄 My Documents")
         with st.expander("➕ Upload New Document"):
             uploaded_file = st.file_uploader("Choose a file (PDF, DOCX, JPG, PNG)", type=['pdf','docx','jpg','jpeg','png'])
@@ -510,7 +396,7 @@ elif choice == "Student Login":
 
         st.divider()
 
-        # ---- My Applications ----
+        # My Applications
         st.markdown("### 📋 My Job Applications")
         df_apps = safe_read_csv("applications.csv")
         if not df_apps.empty:
@@ -530,10 +416,9 @@ elif choice == "Student Login":
 
         st.divider()
 
-        # ---- Interview Slots Booking ----
+        # Interview Slots Booking
         st.markdown("### 🗓️ Upcoming Interviews")
         df_slots = safe_read_csv("interviews.csv")
-        # Get companies the student applied to
         applied_companies = df_apps[df_apps["Student_Email"].str.lower() == student_email.lower()]["Company_Name"].unique()
         available_slots = df_slots[(df_slots["Booked_By"] == "") & (df_slots["Company"].isin(applied_companies))]
         if not available_slots.empty:
@@ -542,8 +427,7 @@ elif choice == "Student Login":
                     st.write(f"**{slot['Company']}** – {slot['Slot_Time']} ({slot['Duration']} min, {slot['Mode']})")
                     if st.button(f"Book Slot", key=f"book_{slot.name}"):
                         update_csv("interviews.csv", lambda r: r.name == slot.name, {"Booked_By": student_email, "Booking_Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
-                        send_email(student_email, "Interview Slot Booked", f"You have booked an interview with {slot['Company']} on {slot['Slot_Time']}.")
-                        st.success("Slot booked! Check your email.")
+                        st.success("Slot booked!")
                         st.rerun()
         else:
             st.info("No available interview slots for companies you applied to.")
@@ -556,7 +440,7 @@ elif choice == "Student Login":
             st.rerun()
 
 # ==========================================
-# 3. COMPANY REGISTRATION (with custom questions)
+# 3. COMPANY REGISTRATION
 # ==========================================
 
 elif choice == "Company Registration":
@@ -605,7 +489,7 @@ elif choice == "Company Login":
         st.success(f"✅ Dashboard: {company_name}")
         tab1, tab2, tab3, tab4 = st.tabs(["📥 Applications", "🗓️ Interview Slots", "📝 Skill Tests", "⭐ Ratings"])
 
-        # ----- Tab 1: Applications (with documents, custom answers, skill test scores) -----
+        # Tab 1: Applications
         with tab1:
             st.markdown("### Candidate Pipeline")
             df_students = safe_read_csv("database.csv")
@@ -623,11 +507,9 @@ elif choice == "Company Login":
                         for _, row in subset.iterrows():
                             with st.container(border=True):
                                 st.write(f"**{row['Name']}** (CGPA: {row['CGPA']}, Branch: {row['Branch']})")
-                                # Show test score if exists
                                 test_res = df_tests[(df_tests["Student_Email"] == row["Email"]) & (df_tests["Company"] == company_name)]
                                 if not test_res.empty:
                                     st.write(f"📊 Skill Test Score: {test_res.iloc[0]['Score']}% – {'Passed' if test_res.iloc[0]['Passed']=='True' else 'Failed'}")
-                                # Show custom answers
                                 if row.get("Answers"):
                                     try:
                                         answers = json.loads(row["Answers"])
@@ -636,7 +518,6 @@ elif choice == "Company Login":
                                                 st.write(f"**{q}**\n{a}")
                                     except:
                                         pass
-                                # Show documents
                                 student_docs = df_docs[df_docs["Student_Email"].str.lower() == row["Email"].lower()]
                                 if not student_docs.empty:
                                     with st.expander("📎 Student Documents"):
@@ -670,7 +551,7 @@ elif choice == "Company Login":
             else:
                 st.info("No applications.")
 
-        # ----- Tab 2: Interview Slots -----
+        # Tab 2: Interview Slots
         with tab2:
             st.write("### Create Interview Slot")
             slot_time = st.datetime_input("Slot Time")
@@ -686,7 +567,7 @@ elif choice == "Company Login":
             for _, slot in slots.iterrows():
                 st.write(f"{slot['Slot_Time']} ({slot['Duration']} min, {slot['Mode']}) – Booked: {slot['Booked_By'] if slot['Booked_By'] else 'Available'}")
 
-        # ----- Tab 3: Skill Tests -----
+        # Tab 3: Skill Tests
         with tab3:
             st.write("### Create Skill Test for a Job")
             job_title = st.text_input("Job Title (e.g., SDE Intern)")
@@ -702,7 +583,7 @@ elif choice == "Company Login":
             tests = df_tests[df_tests["Company"] == company_name]
             st.dataframe(tests[["Job_Title","Passing_Score"]])
 
-        # ----- Tab 4: Ratings -----
+        # Tab 4: Ratings
         with tab4:
             st.write("### Ratings Received")
             df_ratings = safe_read_csv("ratings.csv")
@@ -722,7 +603,7 @@ elif choice == "Company Login":
             st.rerun()
 
 # ==========================================
-# 5. JOB BOARD (with custom questions & skill tests)
+# 5. JOB BOARD
 # ==========================================
 
 elif choice == "Job Board":
@@ -743,7 +624,6 @@ elif choice == "Job Board":
                 if st.session_state.student_logged_in:
                     student = st.session_state.current_student
                     student_email = student["Email"]
-                    # Eligibility check
                     try:
                         student_cgpa = float(student.get("CGPA",0))
                         min_cgpa = float(job.get("MinCGPA",0))
@@ -764,7 +644,6 @@ elif choice == "Job Board":
                         if not branch_ok:
                             st.warning(f"Branch {student['Branch']} not eligible")
                     else:
-                        # Check if skill test exists for this company
                         df_tests = safe_read_csv("skill_tests.csv")
                         test = df_tests[df_tests["Company"] == job["Company"]]
                         if not test.empty:
@@ -785,19 +664,16 @@ elif choice == "Job Board":
                                     correct_answers = test_data["Answers"].split("\n")
                                     score = sum(1 for u, c in zip(user_answers, correct_answers) if u.strip().lower() == c.strip().lower()) / len(q_list) * 100
                                     passed = score >= float(test_data["Passing_Score"])
-                                    # Save result
                                     res_row = {"Student_Email": student_email, "Company": job["Company"], "Score": score, "Passed": str(passed), "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
                                     append_csv("test_results.csv", res_row)
                                     if passed:
                                         st.success(f"You scored {score:.1f}%. Test passed! Now you can apply.")
-                                        # Proceed to custom questions and application
                                     else:
                                         st.error(f"You scored {score:.1f}%. Test failed. Cannot apply.")
                                     st.session_state.current_test = None
                                     st.session_state.test_company = None
                                     st.rerun()
                         else:
-                            # No test – show apply button with custom questions
                             if st.button(f"Apply to {job['Company']}", key=f"apply_{job['Company']}"):
                                 custom_qs = job.get("CustomQuestions", "")
                                 if custom_qs:
@@ -810,13 +686,11 @@ elif choice == "Job Board":
                                     if st.button("Submit Application"):
                                         app_row = {"Student_Email": student_email, "Company_Name": job["Company"], "Status": "Pending", "Answers": json.dumps(answers), "TestScore": ""}
                                         append_csv("applications.csv", app_row)
-                                        send_email(student_email, f"Application submitted to {job['Company']}", f"You have successfully applied to {job['Company']}.")
                                         st.success("Application submitted!")
                                         st.rerun()
                                 else:
                                     app_row = {"Student_Email": student_email, "Company_Name": job["Company"], "Status": "Pending", "Answers": "", "TestScore": ""}
                                     append_csv("applications.csv", app_row)
-                                    send_email(student_email, f"Application submitted to {job['Company']}", f"You have successfully applied to {job['Company']}.")
                                     st.success("Application submitted!")
                                     st.rerun()
                 else:
@@ -845,7 +719,7 @@ elif choice == "Placement Stats":
         st.info("No placement data available")
 
 # ==========================================
-# 7. ADMIN DASHBOARD (advanced)
+# 7. ADMIN DASHBOARD
 # ==========================================
 
 elif choice == "Admin Dashboard":
@@ -867,11 +741,9 @@ elif choice == "Admin Dashboard":
             uploaded = st.file_uploader("Upload CSV with columns: Name,Email,Password,CGPA,Branch", type="csv")
             if uploaded:
                 df_new = pd.read_csv(uploaded)
-                # Validate required columns
                 required = ["Name","Email","Password","CGPA","Branch"]
                 if all(col in df_new.columns for col in required):
-                    # Add missing columns
-                    for col in ["Boosted","Verified","OTP","OTPExpiry"]:
+                    for col in ["Boosted","Verified"]:
                         if col not in df_new.columns:
                             df_new[col] = ""
                     df_existing = safe_read_csv("database.csv")
@@ -890,7 +762,6 @@ elif choice == "Admin Dashboard":
             df_ratings = safe_read_csv("ratings.csv")
             if not df_ratings.empty:
                 st.dataframe(df_ratings)
-                # Allow admin to delete inappropriate reviews
                 rating_to_delete = st.selectbox("Select rating to delete (by Student_Email, Company)", df_ratings.apply(lambda r: f"{r['Student_Email']} - {r['Company']}", axis=1).unique())
                 if st.button("Delete Selected Rating"):
                     df_ratings = df_ratings[~((df_ratings["Student_Email"] + " - " + df_ratings["Company"]) == rating_to_delete)]
@@ -909,6 +780,7 @@ elif choice == "Admin Dashboard":
                 if os.path.exists("uploads"):
                     shutil.rmtree("uploads")
                 init_db()
+                migrate_existing_students()
                 st.success("All data wiped")
                 log_admin_action("Wiped entire database")
                 st.rerun()
