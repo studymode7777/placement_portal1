@@ -605,7 +605,6 @@ elif choice == "Company Login":
 # ==========================================
 # 5. JOB BOARD
 # ==========================================
-
 elif choice == "Job Board":
     st.subheader("📢 Job Openings")
     df_comps = safe_read_csv("companies.csv")
@@ -624,6 +623,7 @@ elif choice == "Job Board":
                 if st.session_state.student_logged_in:
                     student = st.session_state.current_student
                     student_email = student["Email"]
+                    # Eligibility check
                     try:
                         student_cgpa = float(student.get("CGPA",0))
                         min_cgpa = float(job.get("MinCGPA",0))
@@ -644,10 +644,22 @@ elif choice == "Job Board":
                         if not branch_ok:
                             st.warning(f"Branch {student['Branch']} not eligible")
                     else:
+                        # Check if skill test exists for this company
                         df_tests = safe_read_csv("skill_tests.csv")
                         test = df_tests[df_tests["Company"] == job["Company"]]
-                        if not test.empty:
-                            st.warning("This job requires a skill test. Click 'Take Test' first.")
+                        
+                        # Check if student already passed the test for this company
+                        df_test_results = safe_read_csv("test_results.csv")
+                        test_passed = False
+                        if not df_test_results.empty:
+                            student_result = df_test_results[(df_test_results["Student_Email"] == student_email) & 
+                                                              (df_test_results["Company"] == job["Company"])]
+                            if not student_result.empty and student_result.iloc[0]["Passed"] == "True":
+                                test_passed = True
+                        
+                        # If test exists and not yet passed, show test
+                        if not test.empty and not test_passed:
+                            st.warning("This job requires a skill test. Click below to take the test.")
                             if st.button(f"📝 Take Test for {job['Company']}", key=f"test_{job['Company']}"):
                                 st.session_state.current_test = test.iloc[0].to_dict()
                                 st.session_state.test_company = job["Company"]
@@ -658,38 +670,58 @@ elif choice == "Job Board":
                                 user_answers = []
                                 q_list = test_data["Questions"].split("\n")
                                 for i, q in enumerate(q_list):
-                                    ans = st.text_input(f"Q{i+1}: {q}")
-                                    user_answers.append(ans)
-                                if st.button("Submit Test"):
+                                    if q.strip():
+                                        ans = st.text_input(f"Q{i+1}: {q}", key=f"test_q_{i}_{job['Company']}")
+                                        user_answers.append(ans)
+                                if st.button("Submit Test", key=f"submit_test_{job['Company']}"):
                                     correct_answers = test_data["Answers"].split("\n")
-                                    score = sum(1 for u, c in zip(user_answers, correct_answers) if u.strip().lower() == c.strip().lower()) / len(q_list) * 100
-                                    passed = score >= float(test_data["Passing_Score"])
-                                    res_row = {"Student_Email": student_email, "Company": job["Company"], "Score": score, "Passed": str(passed), "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+                                    # Only compare non-empty questions
+                                    total = len([q for q in q_list if q.strip()])
+                                    score = 0
+                                    for u, c in zip(user_answers, correct_answers):
+                                        if u.strip().lower() == c.strip().lower():
+                                            score += 1
+                                    score_percent = (score / total) * 100 if total > 0 else 0
+                                    passed = score_percent >= float(test_data["Passing_Score"])
+                                    # Save result
+                                    res_row = {"Student_Email": student_email, "Company": job["Company"], 
+                                               "Score": score_percent, "Passed": str(passed), 
+                                               "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
                                     append_csv("test_results.csv", res_row)
                                     if passed:
-                                        st.success(f"You scored {score:.1f}%. Test passed! Now you can apply.")
+                                        st.success(f"You scored {score_percent:.1f}%. Test passed! You can now apply.")
+                                        st.session_state.current_test = None
+                                        st.session_state.test_company = None
+                                        st.rerun()
                                     else:
-                                        st.error(f"You scored {score:.1f}%. Test failed. Cannot apply.")
-                                    st.session_state.current_test = None
-                                    st.session_state.test_company = None
-                                    st.rerun()
-                        else:
-                            if st.button(f"Apply to {job['Company']}", key=f"apply_{job['Company']}"):
-                                custom_qs = job.get("CustomQuestions", "")
-                                if custom_qs:
-                                    answers = {}
+                                        st.error(f"You scored {score_percent:.1f}%. Test failed. Cannot apply.")
+                                        st.session_state.current_test = None
+                                        st.session_state.test_company = None
+                                        st.rerun()
+                        
+                        # If test passed (or no test required), show application form
+                        elif test.empty or test_passed:
+                            # Show custom questions if any
+                            custom_qs = job.get("CustomQuestions", "")
+                            if custom_qs:
+                                with st.form(key=f"apply_form_{job['Company']}"):
                                     st.write("### Please answer the following questions")
+                                    answers = {}
                                     for q in custom_qs.split("\n"):
                                         if q.strip():
-                                            ans = st.text_input(q)
+                                            ans = st.text_input(q, key=f"cq_{job['Company']}_{q}")
                                             answers[q] = ans
-                                    if st.button("Submit Application"):
-                                        app_row = {"Student_Email": student_email, "Company_Name": job["Company"], "Status": "Pending", "Answers": json.dumps(answers), "TestScore": ""}
+                                    submitted_app = st.form_submit_button("Submit Application")
+                                    if submitted_app:
+                                        app_row = {"Student_Email": student_email, "Company_Name": job["Company"], 
+                                                   "Status": "Pending", "Answers": json.dumps(answers), "TestScore": ""}
                                         append_csv("applications.csv", app_row)
                                         st.success("Application submitted!")
                                         st.rerun()
-                                else:
-                                    app_row = {"Student_Email": student_email, "Company_Name": job["Company"], "Status": "Pending", "Answers": "", "TestScore": ""}
+                            else:
+                                if st.button(f"Apply to {job['Company']}", key=f"apply_{job['Company']}"):
+                                    app_row = {"Student_Email": student_email, "Company_Name": job["Company"], 
+                                               "Status": "Pending", "Answers": "", "TestScore": ""}
                                     append_csv("applications.csv", app_row)
                                     st.success("Application submitted!")
                                     st.rerun()
