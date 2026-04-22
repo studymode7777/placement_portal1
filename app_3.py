@@ -315,7 +315,7 @@ elif choice == "Student Login":
 
         # Profile Boost (Stripe or demo)
         st.markdown("### 🚀 Premium Features")
-        if student.get("Boosted") == "True":
+        if student.get("Boosted") == True:
             st.success("🔥 Your profile is BOOSTED! Companies see your applications first.")
         else:
             st.info("Boost your profile to appear at the top of recruiter pipelines.")
@@ -341,8 +341,8 @@ elif choice == "Student Login":
                         st.error(f"Stripe error: {e}")
             else:
                 if st.button("💳 Simulate Boost (Demo)"):
-                    update_csv("database.csv", lambda r: r["Email"] == student_email, {"Boosted": "True"})
-                    st.session_state.current_student["Boosted"] = "True"
+                    update_csv("database.csv", lambda r: r["Email"] == student_email, {"Boosted": True})
+                    st.session_state.current_student["Boosted"] = True
                     st.success("Profile boosted! (Demo)")
 
         st.divider()
