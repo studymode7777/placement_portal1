@@ -38,7 +38,7 @@ try:
 except ImportError:
     REPORTLAB_AVAILABLE = False
 
-st.set_page_config(page_title="College Placement Portal", layout="wide", page_icon="🎓")
+st.set_page_config(page_title="PlaceTech portal", layout="wide", page_icon="🎓")
 
 # ==========================================
 # CONFIGURATION (from secrets or env)
@@ -221,7 +221,7 @@ if "student_logged_in" not in st.session_state:
 # NAVIGATION
 # ==========================================
 
-st.title("🎓 College Placement Portal")
+st.title("🎓 PlaceTech portal")
 
 menu = ["Student Registration", "Student Login", "Company Registration", "Company Login", "Job Board", "Placement Stats", "Admin Dashboard"]
 if st.session_state.nav_override:
